@@ -77,6 +77,7 @@ const POST_WINDOW_BUFFER_MS  = 5_000
 const MIN_FAST_ENTRY_PRICE     = 55   // ¢ — matches risk manager floor
 const MAX_FAST_ENTRY_PRICE_YES = 72   // ¢
 const MAX_FAST_ENTRY_PRICE_NO  = 65   // ¢
+const FAST_PATH_MIN_D = parseFloat(process.env.POLY_FAST_D ?? '0.05')  // |% from strike| that arms the no-LLM fast-path
 
 // ── Normal CDF approximation (Abramowitz & Stegun) ───────────────────────────
 function normalCDF(x: number): number {
@@ -429,7 +430,8 @@ class ServerAgent extends EventEmitter {
       if (kellyFrac <= 0) { console.log(`[ServerAgent] Fast-path: Kelly=0 at ${askPrice}¢ — skip`); return }
       const edgePct = (pWin * netWinPerC + (1 - pWin) * (-p_d - feePerC)) * 100
       if (edgePct < 6) { console.log(`[ServerAgent] Fast-path: edge ${edgePct.toFixed(2)}% < 6% — skip`); return }
-      const halfKellyCapital = kellyFrac * 0.18 * this.bankroll
+      const capital = this.bankroll > 0 ? this.bankroll : this.allowance
+      const halfKellyCapital = kellyFrac * 0.18 * capital
       const contracts        = Math.max(1, Math.round(halfKellyCapital / totalCostPerC))
       const cost             = contracts * totalCostPerC
       if (cost < 1) return
@@ -540,6 +542,14 @@ class ServerAgent extends EventEmitter {
           this.pushState()
         }
       } catch {}
+
+      // No-LLM deterministic fast-path: when BTC is decisively off the strike,
+      // enter directly. The full ROMA/Grok pipeline needs an LLM key; this path
+      // does not. Fires at most once per window (windowBetPlaced guard).
+      if (!this.windowBetPlaced && Math.abs(this.currentD) >= FAST_PATH_MIN_D) {
+        await this.fastEntry(this.currentD, closeMs)
+        if (this.windowBetPlaced) { pollInFlight = false; return }
+      }
 
       const now = Date.now()
       if (now - this.lastCycleAt >= SCAN_INTERVAL_MS) {

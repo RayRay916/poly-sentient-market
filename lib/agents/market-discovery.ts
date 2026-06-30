@@ -1,5 +1,5 @@
 import type { AgentResult, MarketDiscoveryOutput } from '../types'
-import { findNearestMarket, minutesUntilExpiry, secondsUntilExpiry } from '../kalshi'
+import { findNearestMarket, minutesUntilExpiry, secondsUntilExpiry } from '../market-time'
 import type { KalshiMarket } from '../types'
 
 /** Extract strike price from a Kalshi market using available fields in priority order. */
