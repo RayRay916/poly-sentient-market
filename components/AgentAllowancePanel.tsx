@@ -129,7 +129,7 @@ export default function AgentAllowancePanel({
           )}
           {(active ? aiMode : localAiMode) && (
             <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: 'rgba(100,60,180,0.12)', border: '1px solid #7c4dcc', color: '#7c4dcc' }}>
-              GROK AI
+              AI
             </span>
           )}
         </div>
@@ -155,7 +155,7 @@ export default function AgentAllowancePanel({
             ))}
           </div>
           <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-            {([['ROMA', false], ['Grok AI', true]] as const).map(([label, val]) => (
+            {([['ROMA', false], ['AI', true]] as const).map(([label, val]) => (
               <button key={label} onClick={() => setLocalAiMode(val)} style={{
                 flex: 1, padding: '5px 0', borderRadius: 7, cursor: 'pointer', fontSize: 11, fontWeight: 700,
                 border: `1px solid ${localAiMode === val ? (val ? '#7c4dcc' : 'var(--blue)') : 'var(--border)'}`,
@@ -427,7 +427,7 @@ export default function AgentAllowancePanel({
           onMouseEnter={e => { e.currentTarget.style.opacity = '0.88' }}
           onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
         >
-          ▶ Start Agent {localKelly ? `· Kelly ${kellyPct}%` : '· Fixed'} {localAiMode ? '· Grok AI' : '· ROMA'}
+          ▶ Start Agent {localKelly ? `· Kelly ${kellyPct}%` : '· Fixed'} {localAiMode ? '· AI' : '· ROMA'}
         </button>
       ) : (
         <button onClick={onStop} style={{

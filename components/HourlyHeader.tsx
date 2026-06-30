@@ -62,7 +62,7 @@ export default function HourlyHeader({ cycleId, isRunning, lastCompletedAt, onRu
               Sentient <span style={{ color: 'var(--pink)' }}>HOURLY</span>
             </div>
             <div style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginTop: 1 }}>
-              Grok Price Prediction · Polymarket BTC Up/Down
+              AI Price Prediction · Polymarket BTC Up/Down
             </div>
           </div>
         </div>

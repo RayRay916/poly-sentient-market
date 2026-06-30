@@ -91,7 +91,7 @@ function Fact({ label, value, color, mono = true }: { label: string; value: stri
 function ScanLoader({ elapsed, aiMode }: { elapsed: number; aiMode?: boolean }) {
   const sec = (elapsed / 1000).toFixed(1)
   const scanColor = aiMode ? 'var(--blue)' : 'var(--green)'
-  const label     = aiMode ? 'GROK ANALYZING' : 'SCANNING MARKET'
+  const label     = aiMode ? 'AI ANALYZING' : 'SCANNING MARKET'
   return (
     <div style={{ padding: '24px 0 20px' }}>
       <div style={{ position: 'relative', height: 2, borderRadius: 1, background: 'var(--border)', overflow: 'hidden', marginBottom: 20 }}>
@@ -143,8 +143,8 @@ const AGENTS_AI: AgentCardConfig[] = [
   { key: 'priceFeed'       as const, label: 'Price Feed',       short: 'PRICE',     icon: '◈', desc: 'Coinbase BTC feed',    color: 'var(--green)',  rgb: '45,158,107',  bg: 'var(--green-pale)', border: 'rgba(45,158,107,0.22)' },
   { key: 'markov'          as const, label: 'Markov Gate',      short: 'GATE',      icon: '⬙', desc: 'momentum regime gate', color: 'var(--pink)',   rgb: '212,85,130',  bg: 'var(--pink-pale)',  border: 'rgba(212,85,130,0.22)' },
   { key: 'sentiment'       as const, label: 'Risk Manager',     short: 'RISK',      icon: '◉', desc: 'tiered Kelly sizing',   color: 'var(--blue)',   rgb: '58,114,168',  bg: 'var(--blue-pale)',  border: 'rgba(58,114,168,0.22)' },
-  { key: 'probability'     as const, label: 'Probability',      short: 'PROB',      icon: '⬟', desc: 'Grok AI',              color: 'var(--amber)',  rgb: '184,121,10',  bg: 'var(--amber-pale)', border: 'rgba(184,121,10,0.22)' },
-  { key: 'execution'       as const, label: 'Execution',        short: 'EXEC',      icon: '▶', desc: 'Grok order',           color: 'var(--green)',  rgb: '45,158,107',  bg: 'var(--green-pale)', border: 'rgba(45,158,107,0.22)' },
+  { key: 'probability'     as const, label: 'Probability',      short: 'PROB',      icon: '⬟', desc: 'AI',              color: 'var(--amber)',  rgb: '184,121,10',  bg: 'var(--amber-pale)', border: 'rgba(184,121,10,0.22)' },
+  { key: 'execution'       as const, label: 'Execution',        short: 'EXEC',      icon: '▶', desc: 'AI order',           color: 'var(--green)',  rgb: '45,158,107',  bg: 'var(--green-pale)', border: 'rgba(45,158,107,0.22)' },
 ]
 
 // Hourly BTC Up/Down + quant pipeline
@@ -162,9 +162,9 @@ const AGENTS_HOURLY: AgentCardConfig[] = [
   { key: 'marketDiscovery' as const, label: 'Market Discovery', short: 'MARKET',   icon: '◎', desc: 'BTC Up/Down hourly scan',   color: 'var(--brown)',  rgb: '74,124,142',  bg: 'var(--brown-pale)', border: 'rgba(74,124,142,0.22)' },
   { key: 'priceFeed'       as const, label: 'Price Feed',       short: 'PRICE',    icon: '◈', desc: 'Coinbase BTC feed',    color: 'var(--green)',  rgb: '45,158,107',  bg: 'var(--green-pale)', border: 'rgba(45,158,107,0.22)' },
   { key: 'markov'          as const, label: 'Markov Gate',      short: 'GATE',     icon: '⬙', desc: 'momentum regime gate', color: 'var(--pink)',   rgb: '212,85,130',  bg: 'var(--pink-pale)',  border: 'rgba(212,85,130,0.22)' },
-  { key: 'sentiment'       as const, label: 'Grok Forecast',    short: 'FORECAST', icon: '◉', desc: 'Price prediction',     color: 'var(--blue)',   rgb: '58,114,168',  bg: 'var(--blue-pale)',  border: 'rgba(58,114,168,0.22)' },
+  { key: 'sentiment'       as const, label: 'AI Forecast',    short: 'FORECAST', icon: '◉', desc: 'Price prediction',     color: 'var(--blue)',   rgb: '58,114,168',  bg: 'var(--blue-pale)',  border: 'rgba(58,114,168,0.22)' },
   { key: 'probability'     as const, label: 'Price Model',      short: 'MODEL',    icon: '⬟', desc: 'Predicted vs strike',  color: 'var(--amber)',  rgb: '184,121,10',  bg: 'var(--amber-pale)', border: 'rgba(184,121,10,0.22)' },
-  { key: 'execution'       as const, label: 'Execution',        short: 'EXEC',     icon: '▶', desc: 'Grok order',           color: 'var(--green)',  rgb: '45,158,107',  bg: 'var(--green-pale)', border: 'rgba(45,158,107,0.22)' },
+  { key: 'execution'       as const, label: 'Execution',        short: 'EXEC',     icon: '▶', desc: 'AI order',           color: 'var(--green)',  rgb: '45,158,107',  bg: 'var(--green-pale)', border: 'rgba(45,158,107,0.22)' },
 ]
 
 function shortenProvider(raw: string): string {
@@ -357,7 +357,7 @@ function ProbabilityBody({ output, color, aiMode }: { output: ProbabilityOutput;
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
             <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              {aiMode ? 'Grok' : 'Model'}
+              {aiMode ? 'AI' : 'Model'}
             </span>
             <span style={{ fontFamily: 'var(--font-geist-mono)', fontSize: 10, fontWeight: 800, color: recColor }}>{(pModel * 100).toFixed(1)}%</span>
           </div>
@@ -706,11 +706,11 @@ export default function AgentPipeline({
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isRunning ? 8 : 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>
             {isHourly && aiMode
-              ? <><span style={{ color: 'var(--pink)', fontSize: 12 }}>◷</span> Grok Hourly Agent</>
+              ? <><span style={{ color: 'var(--pink)', fontSize: 12 }}>◷</span> AI Hourly Agent</>
               : isHourly && !aiMode
               ? <><span style={{ color: 'var(--brown)', fontSize: 11 }}>∑</span> Quant Hourly</>
               : aiMode
-              ? <><span style={{ color: 'var(--blue)', fontSize: 12 }}>✦</span> Grok AI Agent</>
+              ? <><span style={{ color: 'var(--blue)', fontSize: 12 }}>✦</span> AI Agent</>
               : <><span style={{ color: 'var(--brown)', fontSize: 11 }}>∑</span> Markov + RiskManager</>}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

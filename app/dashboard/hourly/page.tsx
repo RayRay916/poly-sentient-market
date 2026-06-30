@@ -171,10 +171,10 @@ export default function HourlyDashboard() {
   }
 
   const GROK_MODELS = [
-    { id: 'grok-3',           label: 'Grok 3',           sub: 'Most capable' },
-    { id: 'grok-3-fast',      label: 'Grok 3 Fast',      sub: 'Faster · good quality' },
-    { id: 'grok-3-mini',      label: 'Grok 3 Mini',      sub: 'Compact reasoning' },
-    { id: 'grok-3-mini-fast', label: 'Grok 3 Mini Fast', sub: 'Fastest · lowest cost' },
+    { id: 'grok-3',           label: 'AI · Standard',           sub: 'Most capable' },
+    { id: 'grok-3-fast',      label: 'AI · Fast',      sub: 'Faster · good quality' },
+    { id: 'grok-3-mini',      label: 'AI · Mini',      sub: 'Compact reasoning' },
+    { id: 'grok-3-mini-fast', label: 'AI · Mini Fast', sub: 'Fastest · lowest cost' },
   ]
   const selectedModel = GROK_MODELS.find(m => m.id === orModel) ?? GROK_MODELS[0]
 
@@ -216,7 +216,7 @@ export default function HourlyDashboard() {
                 {tradeAlert.side === 'yes' ? '↑' : '↓'}
               </div>
               <div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 2 }}>Grok Hourly Signal</div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 2 }}>AI Hourly Signal</div>
                 <div style={{ fontSize: 18, fontWeight: 800, color: tradeAlert.side === 'yes' ? 'var(--green-dark)' : 'var(--pink)', lineHeight: 1 }}>
                   BUY {tradeAlert.side === 'yes' ? 'UP' : 'DOWN'} @ {tradeAlert.limitPrice}¢
                 </div>
@@ -297,7 +297,7 @@ export default function HourlyDashboard() {
                 </div>
                 {predictedPrice && predictedPrice > 0 && (
                   <div style={{ marginTop: 8, padding: '6px 10px', borderRadius: 8, background: 'var(--bg-secondary)', border: '1px solid var(--border)', fontSize: 10 }}>
-                    <span style={{ color: 'var(--text-muted)' }}>Grok predicts </span>
+                    <span style={{ color: 'var(--text-muted)' }}>AI predicts </span>
                     <span style={{ fontFamily: 'var(--font-geist-mono)', fontWeight: 700, color: 'var(--text-primary)' }}>
                       ${predictedPrice.toLocaleString('en-US', { maximumFractionDigits: 0 })}
                     </span>
@@ -321,7 +321,7 @@ export default function HourlyDashboard() {
               {/* Mode badge */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8, background: 'rgba(224,111,160,0.12)', border: '1px solid rgba(224,111,160,0.3)', flexShrink: 0 }}>
                 <span style={{ fontSize: 11, color: 'var(--pink)', fontWeight: 800 }}>◷ 1H</span>
-                <span style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 600 }}>BTC Up/Down · {aiMode ? 'Grok Forecast' : 'Quant'}</span>
+                <span style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 600 }}>BTC Up/Down · {aiMode ? 'AI Forecast' : 'Quant'}</span>
               </div>
 
               {/* Quant | AI toggle */}
@@ -349,7 +349,7 @@ export default function HourlyDashboard() {
                 </button>
                 {grokMenuOpen && (
                   <div className="animate-fade-in" style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 200, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', width: '100%', minWidth: 240 }}>
-                    <div style={{ padding: '5px 12px 3px', fontSize: 9, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>xAI · Grok</div>
+                    <div style={{ padding: '5px 12px 3px', fontSize: 9, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>AI Models</div>
                     {GROK_MODELS.map(m => (
                       <div key={m.id} onClick={() => handleGrokModelChange(m.id)} style={{ padding: '7px 14px', cursor: 'pointer', background: orModel === m.id ? 'rgba(224,111,160,0.1)' : 'transparent', borderLeft: orModel === m.id ? '2px solid var(--pink)' : '2px solid transparent', transition: 'background 0.1s' }} onMouseEnter={e => { if (orModel !== m.id) (e.currentTarget as HTMLElement).style.background = 'var(--bg-secondary)' }} onMouseLeave={e => { if (orModel !== m.id) (e.currentTarget as HTMLElement).style.background = 'transparent' }}>
                         <div style={{ fontSize: 12, fontWeight: orModel === m.id ? 700 : 500, color: orModel === m.id ? 'var(--pink)' : 'var(--text-primary)' }}>{m.label}</div>

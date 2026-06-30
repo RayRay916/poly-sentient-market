@@ -527,8 +527,8 @@ export default function SettingsPage() {
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {([
-              { key: 'openrouter', label: 'OpenRouter', placeholder: 'sk-or-v1-…',  hint: 'Routes any model (Gemini, GPT, Claude, Grok…)' },
-              { key: 'xai',        label: 'xAI / Grok',  placeholder: 'xai-…',        hint: 'Direct xAI API — grok-3, grok-4 models' },
+              { key: 'openrouter', label: 'OpenRouter', placeholder: 'sk-or-v1-…',  hint: 'Routes any model (GPT, Claude, Gemini…)' },
+              { key: 'xai',        label: 'xAI',  placeholder: 'xai-…',        hint: 'Direct xAI API' },
               { key: 'anthropic',  label: 'Anthropic',   placeholder: 'sk-ant-…',     hint: 'Direct Anthropic API — Claude models' },
               { key: 'openai',     label: 'OpenAI',      placeholder: 'sk-…',         hint: 'Direct OpenAI API — GPT-4o, o-series models' },
               { key: 'huggingface',label: 'HuggingFace', placeholder: 'hf_…',         hint: 'HuggingFace Inference API — open-source models' },
@@ -586,7 +586,7 @@ export default function SettingsPage() {
               { label: 'ROMA Mode',       key: 'ROMA_MODE',           value: config.romaMode,          desc: 'Default analysis depth' },
               { label: 'Max Depth',       key: 'ROMA_MAX_DEPTH',      value: config.romaMaxDepth,      desc: 'Decomposition levels (1=fast, 2+=deeper)' },
 { label: 'OpenRouter Key',  key: 'OPENROUTER_API_KEY',  value: config.openrouterKeySet ? (config.openrouterKeyHint ?? '✓ set') : '✗ not set', desc: 'Required when AI_PROVIDER=openrouter' },
-              { label: 'xAI / Grok Key', key: 'XAI_API_KEY',         value: config.xaiKeySet ? '✓ set' : '✗ not set',         desc: 'Required when AI_PROVIDER=grok' },
+              { label: 'xAI Key', key: 'XAI_API_KEY',         value: config.xaiKeySet ? '✓ set' : '✗ not set',         desc: 'Required when AI_PROVIDER=grok' },
               { label: 'Anthropic Key',   key: 'ANTHROPIC_API_KEY',   value: config.anthropicKeySet ? '✓ set' : '✗ not set',   desc: 'Required when AI_PROVIDER=anthropic' },
               { label: 'Wallet',          key: 'EXEC_WALLET',         value: config.walletConfigured ? '✓ configured' : '✗ not set', desc: 'Polymarket wallet (exec-rs/.env)' },
               { label: 'Exec URL',        key: 'EXEC_URL',            value: config.execUrl ?? '✗ not set',                    desc: 'Polymarket exec service endpoint' },

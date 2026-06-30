@@ -494,7 +494,7 @@ export default function MarketCard({ market, orderbook, strikePrice, currentBTCP
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               }}>
                 <div>
-                  <div style={{ fontSize: 8, color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 2 }}>Grok Forecast</div>
+                  <div style={{ fontSize: 8, color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 2 }}>AI Forecast</div>
                   <div style={{ fontFamily: 'var(--font-geist-mono)', fontSize: 17, fontWeight: 800, color: trendCol, lineHeight: 1 }}>
                     {fmt(predictedPrice)}
                   </div>

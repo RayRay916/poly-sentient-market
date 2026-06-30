@@ -482,10 +482,10 @@ export default function Home() {
                 {/* Grok model picker — only visible in AI mode */}
                 {analysisMode === 'ai' && (() => {
                   const GROK_MODELS = [
-                    { id: 'grok-3',           label: 'xAI: Grok 3',           sub: 'Most capable' },
-                    { id: 'grok-3-fast',      label: 'xAI: Grok 3 Fast',      sub: 'Faster · good quality' },
-                    { id: 'grok-3-mini',      label: 'xAI: Grok 3 Mini',      sub: 'Compact reasoning' },
-                    { id: 'grok-3-mini-fast', label: 'xAI: Grok 3 Mini Fast', sub: 'Fastest · lowest cost' },
+                    { id: 'grok-3',           label: 'AI · Standard',           sub: 'Most capable' },
+                    { id: 'grok-3-fast',      label: 'AI · Fast',      sub: 'Faster · good quality' },
+                    { id: 'grok-3-mini',      label: 'AI · Mini',      sub: 'Compact reasoning' },
+                    { id: 'grok-3-mini-fast', label: 'AI · Mini Fast', sub: 'Fastest · lowest cost' },
                   ]
                   const selected = GROK_MODELS.find(m => m.id === orModel) ?? GROK_MODELS[0]
                   return (
@@ -514,7 +514,7 @@ export default function Home() {
                           width: '100%', minWidth: 240,
                         }}>
                           <div style={{ padding: '5px 12px 3px', fontSize: 9, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                            xAI · Grok
+                            AI Models
                           </div>
                           {GROK_MODELS.map(m => (
                             <div
@@ -629,7 +629,7 @@ export default function Home() {
                       display: 'flex', alignItems: 'center', gap: 4,
                       padding: '5px 9px', borderRadius: 8,
                       background: 'rgba(58,114,168,0.07)', border: '1px solid #8ab4cf',
-                    }} title="Grok re-runs when BTC moves ≥0.20% from last run">
+                    }} title="AI re-runs when BTC moves ≥0.20% from last run">
                       <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--blue)', display: 'inline-block', animation: 'pulse-live 2s ease-in-out infinite', flexShrink: 0 }} />
                       <span style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Δ</span>
                       <span style={{
@@ -655,12 +655,12 @@ export default function Home() {
                 }}>
                   <div style={{ fontSize: 9, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>Analysis Mode</div>
                   <div style={{ fontSize: 11, color: analysisMode === 'quant' ? 'var(--brown)' : 'var(--blue)', fontWeight: 700, marginBottom: 4 }}>
-                    {analysisMode === 'quant' ? '∑ Quant — pure Brownian math, no LLM' : '✦ AI — Grok-enhanced analysis'}
+                    {analysisMode === 'quant' ? '∑ Quant — pure Brownian math, no LLM' : '✦ AI — enhanced analysis'}
                   </div>
                   <div style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.5 }}>
                     {analysisMode === 'quant'
                       ? 'd-score · Cornish-Fisher CF-VaR · GK vol · Kelly sizing. Deterministic & fast.'
-                      : 'Quant pipeline + Grok AI risk manager (ROMA). Switch model above.'}
+                      : 'Quant pipeline + AI risk manager (ROMA). Switch model above.'}
                   </div>
                 </div>
               )}
