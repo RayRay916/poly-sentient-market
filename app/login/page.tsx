@@ -61,7 +61,7 @@ export default function LoginPage() {
             Sentient <span style={{ color: 'var(--blue)' }}>ROMA</span>
           </div>
           <div style={{ fontSize: 11, color: 'var(--text-muted)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-            Multi-Agent Algotrader · Kalshi KXBTC15M
+            Multi-Agent Algotrader · Polymarket BTC Up/Down
           </div>
         </div>
 
@@ -160,7 +160,7 @@ export default function LoginPage() {
         </div>
 
         <div style={{ textAlign: 'center', marginTop: 16, fontSize: 11, color: 'var(--text-muted)' }}>
-          Your Kalshi API key is stored encrypted and never shared.
+          Your Polymarket wallet is managed securely and never shared.
         </div>
       </div>
     </div>

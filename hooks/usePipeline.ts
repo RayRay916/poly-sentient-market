@@ -23,7 +23,7 @@ export function usePipeline(
   orModel?: string,      // override OpenRouter model ID for sentiment + probability
   btcPrice?: number,     // live BTC price — used for strike-flip detection
   strikePrice?: number,  // current market strike price
-  marketMode: '15m' | 'hourly' = '15m',  // '15m' = KXBTC15M, 'hourly' = KXBTCD
+  marketMode: '15m' | 'hourly' = '15m',  // '15m' = 15m BTC Up/Down, 'hourly' = hourly BTC Up/Down
   strategyParams?: { minGap?: number; persistTau?: number; maxEntryPrice?: number },
 ) {
   // Separate storage keys so the hourly page never loads stale 15m state
@@ -193,8 +193,8 @@ export function usePipeline(
       const exec = data.agents.execution.output
 
       // ── Real order: ONLY when Agent is active ──────────────────────────────
-      // Safety guard: hourly mode must only trade KXBTCD; 15m must only trade KXBTC15M
-      const expectedPrefix = marketMode === 'hourly' ? 'KXBTCD' : 'KXBTC15M'
+      // Safety guard: hourly mode must only trade the hourly BTC Up/Down market; 15m must only trade the 15m market
+      const expectedPrefix = marketMode === 'hourly' ? 'bitcoin-up-or-down' : 'btc-updown-15m'
       const tickerOk = exec.marketTicker?.startsWith(expectedPrefix)
       if (!tickerOk && exec.marketTicker) {
         console.error(`[bot] BLOCKED: ticker ${exec.marketTicker} is wrong series for ${marketMode} mode (expected ${expectedPrefix})`)
@@ -223,7 +223,7 @@ export function usePipeline(
         } else {
           // Use fresh ask if available and within range; otherwise fall back to pipeline price.
           // Use side-specific price fields directly (noPrice for NO, yesPrice for YES)
-          // so Kalshi sets the correct limit without the 100-P complement conversion.
+          // so exec sets the correct limit for the chosen side.
           const submitPrice = freshAsk ?? exec.limitPrice
           const clientOrderId = `bot-${data.cycleId}-${Date.now()}`
           const orderBody = exec.side === 'yes'

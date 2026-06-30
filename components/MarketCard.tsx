@@ -1,11 +1,23 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import type { KalshiMarket, KalshiOrderbook } from '@/lib/types'
+import type { PolyBook } from '@/lib/polymarket/types'
+
+// Minimal market shape this card reads — accepts the feed's PolyMarket (and the
+// pipeline's market object) without coupling to a venue-specific type.
+interface MarketView {
+  ticker: string
+  yes_bid: number
+  yes_ask: number
+  no_bid: number
+  no_ask: number
+  volume?: number
+  open_interest?: number
+}
 
 interface MarketCardProps {
-  market: KalshiMarket | null
-  orderbook: KalshiOrderbook | null
+  market: MarketView | null
+  orderbook: PolyBook | null
   strikePrice: number
   currentBTCPrice: number
   secondsUntilExpiry: number
@@ -120,7 +132,7 @@ function TradeBox({ yesBid, yesAsk, noBid, noAsk, ticker, liveMode, side, onSide
                 marginBottom: -1,
               }}>
               <span style={{ fontSize: 9, fontWeight: 700, color: active ? activeC : 'var(--text-muted)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-                {s === 'yes' ? 'Yes' : 'No'}
+                {s === 'yes' ? 'Up' : 'Down'}
               </span>
               <span style={{ fontFamily: 'var(--font-geist-mono)', fontSize: 18, fontWeight: 800, color: active ? activeC : 'var(--text-secondary)', lineHeight: 1.1 }}>
                 {a}¢
@@ -241,7 +253,7 @@ function TradeBox({ yesBid, yesAsk, noBid, noAsk, ticker, liveMode, side, onSide
           onMouseEnter={e => { if (liveMode) e.currentTarget.style.opacity = '0.85' }}
           onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
         >
-          {liveMode ? `Buy ${isYes ? 'Yes' : 'No'} · $${actualCost}` : `Paper · ${isYes ? 'Yes' : 'No'} @ ${ask}¢`}
+          {liveMode ? `Buy ${isYes ? 'Up' : 'Down'} · $${actualCost}` : `Paper · ${isYes ? 'Up' : 'Down'} @ ${ask}¢`}
         </button>
       )}
       {order.status === 'placing' && (
@@ -539,7 +551,7 @@ export default function MarketCard({ market, orderbook, strikePrice, currentBTCP
                   onMouseEnter={e => { if (!allingIn) { e.currentTarget.style.background = side === 'yes' ? 'var(--green)' : 'var(--pink)'; e.currentTarget.style.color = '#fff' } }}
                   onMouseLeave={e => { if (!allingIn) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = side === 'yes' ? 'var(--green-dark)' : 'var(--pink-dark)' } }}
                 >
-                  {allingIn ? '…' : `All In ${side === 'yes' ? 'Yes' : 'No'}`}
+                  {allingIn ? '…' : `All In ${side === 'yes' ? 'Up' : 'Down'}`}
                 </button>
 
                 {/* Sell 50% + Flip — prominent secondary row */}
@@ -566,7 +578,7 @@ export default function MarketCard({ market, orderbook, strikePrice, currentBTCP
                     onMouseEnter={e => { if (!flipping) { e.currentTarget.style.background = 'var(--blue)'; e.currentTarget.style.color = '#fff' } }}
                     onMouseLeave={e => { e.currentTarget.style.background = 'var(--blue-pale)'; e.currentTarget.style.color = 'var(--blue-dark)' }}
                   >
-                    {flipping ? '…' : `Flip → ${side === 'yes' ? 'NO' : 'YES'}`}
+                    {flipping ? '…' : `Flip → ${side === 'yes' ? 'DOWN' : 'UP'}`}
                   </button>
                 </div>
 
@@ -609,14 +621,14 @@ export default function MarketCard({ market, orderbook, strikePrice, currentBTCP
                   {`${mins}:${String(secs).padStart(2, '0')}`}
                 </div>
                 <div style={{ fontSize: 9, color: 'var(--text-muted)', marginTop: 2 }}>
-                  {isHourly ? 'KXBTCD hourly' : 'CF Benchmarks'}
+                  {isHourly ? 'BTC Up/Down hourly' : 'BTC index'}
                 </div>
               </div>
             </div>
 
             {/* Volume / OI */}
             <div style={{ display: 'flex', gap: 20, marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
-              {[['Volume', market.volume], ['Open Interest', market.open_interest]].map(([k, v]) => (
+              {[['Volume', market.volume ?? 0], ['Open Interest', market.open_interest ?? 0]].map(([k, v]) => (
                 <div key={String(k)}>
                   <div style={{ fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>{k}</div>
                   <div style={{ fontFamily: 'var(--font-geist-mono)', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>
@@ -630,7 +642,7 @@ export default function MarketCard({ market, orderbook, strikePrice, currentBTCP
           <div style={{ padding: '32px 0', textAlign: 'center' }}>
             <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>No market</div>
             <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-              {isHourly ? 'Run pipeline to discover KXBTCD market' : 'No open KXBTC15M markets'}
+              {isHourly ? 'Run pipeline to discover the hourly BTC Up/Down market' : 'No open BTC Up/Down markets'}
             </div>
           </div>
         )}
@@ -639,9 +651,9 @@ export default function MarketCard({ market, orderbook, strikePrice, currentBTCP
         {liveMode && market && (
           <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)', display: 'flex', flexWrap: 'wrap', gap: '3px 8px', alignItems: 'center' }}>
             <span style={{ fontSize: 9, fontWeight: 700, color: side === 'yes' ? 'var(--green-dark)' : 'var(--pink-dark)', marginRight: 4 }}>
-              {side === 'yes' ? 'YES' : 'NO'}
+              {side === 'yes' ? 'UP' : 'DOWN'}
             </span>
-            {[['⇧Y','YES'],['⇧N','NO'],['⇧A','All In'],['⇧1','$10'],['⇧2','$25'],['⇧3','$50'],['⇧H','½ Sell'],['⇧F','Flip'],['⇧4','Limit'],['⇧5','Cancel'],['⇧6','Sell All']].map(([key, label]) => (
+            {[['⇧Y','UP'],['⇧N','DOWN'],['⇧A','All In'],['⇧1','$10'],['⇧2','$25'],['⇧3','$50'],['⇧H','½ Sell'],['⇧F','Flip'],['⇧4','Limit'],['⇧5','Cancel'],['⇧6','Sell All']].map(([key, label]) => (
               <span key={key} style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: 'var(--font-geist-mono)' }}>
                 <span style={{ fontWeight: 700, color: 'var(--text-secondary)' }}>{key}</span> {label}
               </span>

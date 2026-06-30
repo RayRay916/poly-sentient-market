@@ -30,8 +30,8 @@ const LOG_MESSAGES: [number, string][] = [
   [14, '› Generating 3–5 parallel analysis subtasks'],
   [20, '› Dispatching Executors in parallel'],
   [28, '› Executor A — BTC 1h momentum signal'],
-  [38, '› Executor B — Kalshi orderbook sentiment'],
-  [48, '› Executor C — P(YES) vs time decay model'],
+  [38, '› Executor B — Polymarket orderbook sentiment'],
+  [48, '› Executor C — P(Up) vs time decay model'],
   [58, '› Executor D — Edge vs market-implied prob'],
   [67, '› Executor E — Risk-adjusted trade signal'],
   [76, '› Aggregator synthesizing subtask results'],
@@ -130,7 +130,7 @@ type AgentCardConfig = {
 
 // ── Agent cards (post-run results) ──────────────────────────────────────────
 const AGENTS_QUANT: AgentCardConfig[] = [
-  { key: 'marketDiscovery' as const, label: 'Market Discovery', short: 'MARKET',    icon: '◎', desc: 'KXBTC15M scan',        color: 'var(--brown)',  rgb: '74,124,142',  bg: 'var(--brown-pale)', border: 'rgba(74,124,142,0.22)' },
+  { key: 'marketDiscovery' as const, label: 'Market Discovery', short: 'MARKET',    icon: '◎', desc: 'BTC Up/Down scan',        color: 'var(--brown)',  rgb: '74,124,142',  bg: 'var(--brown-pale)', border: 'rgba(74,124,142,0.22)' },
   { key: 'priceFeed'       as const, label: 'Price Feed',       short: 'PRICE',     icon: '◈', desc: 'Coinbase BTC feed',    color: 'var(--green)',  rgb: '45,158,107',  bg: 'var(--green-pale)', border: 'rgba(45,158,107,0.22)' },
   { key: 'markov'          as const, label: 'Markov Gate',      short: 'GATE',      icon: '⬙', desc: 'momentum regime gate', color: 'var(--pink)',   rgb: '212,85,130',  bg: 'var(--pink-pale)',  border: 'rgba(212,85,130,0.22)' },
   { key: 'sentiment'       as const, label: 'Risk Manager',     short: 'RISK',      icon: '◉', desc: 'tiered Kelly sizing',   color: 'var(--blue)',   rgb: '58,114,168',  bg: 'var(--blue-pale)',  border: 'rgba(58,114,168,0.22)' },
@@ -139,7 +139,7 @@ const AGENTS_QUANT: AgentCardConfig[] = [
 ]
 
 const AGENTS_AI: AgentCardConfig[] = [
-  { key: 'marketDiscovery' as const, label: 'Market Discovery', short: 'MARKET',    icon: '◎', desc: 'KXBTC15M scan',        color: 'var(--brown)',  rgb: '74,124,142',  bg: 'var(--brown-pale)', border: 'rgba(74,124,142,0.22)' },
+  { key: 'marketDiscovery' as const, label: 'Market Discovery', short: 'MARKET',    icon: '◎', desc: 'BTC Up/Down scan',        color: 'var(--brown)',  rgb: '74,124,142',  bg: 'var(--brown-pale)', border: 'rgba(74,124,142,0.22)' },
   { key: 'priceFeed'       as const, label: 'Price Feed',       short: 'PRICE',     icon: '◈', desc: 'Coinbase BTC feed',    color: 'var(--green)',  rgb: '45,158,107',  bg: 'var(--green-pale)', border: 'rgba(45,158,107,0.22)' },
   { key: 'markov'          as const, label: 'Markov Gate',      short: 'GATE',      icon: '⬙', desc: 'momentum regime gate', color: 'var(--pink)',   rgb: '212,85,130',  bg: 'var(--pink-pale)',  border: 'rgba(212,85,130,0.22)' },
   { key: 'sentiment'       as const, label: 'Risk Manager',     short: 'RISK',      icon: '◉', desc: 'tiered Kelly sizing',   color: 'var(--blue)',   rgb: '58,114,168',  bg: 'var(--blue-pale)',  border: 'rgba(58,114,168,0.22)' },
@@ -147,19 +147,19 @@ const AGENTS_AI: AgentCardConfig[] = [
   { key: 'execution'       as const, label: 'Execution',        short: 'EXEC',      icon: '▶', desc: 'Grok order',           color: 'var(--green)',  rgb: '45,158,107',  bg: 'var(--green-pale)', border: 'rgba(45,158,107,0.22)' },
 ]
 
-// Hourly KXBTCD + quant pipeline
+// Hourly BTC Up/Down + quant pipeline
 const AGENTS_QUANT_HOURLY: AgentCardConfig[] = [
-  { key: 'marketDiscovery' as const, label: 'Market Discovery', short: 'MARKET',   icon: '◎', desc: 'KXBTCD hourly scan',   color: 'var(--brown)',  rgb: '74,124,142',  bg: 'var(--brown-pale)', border: 'rgba(74,124,142,0.22)' },
+  { key: 'marketDiscovery' as const, label: 'Market Discovery', short: 'MARKET',   icon: '◎', desc: 'BTC Up/Down hourly scan',   color: 'var(--brown)',  rgb: '74,124,142',  bg: 'var(--brown-pale)', border: 'rgba(74,124,142,0.22)' },
   { key: 'priceFeed'       as const, label: 'Price Feed',       short: 'PRICE',    icon: '◈', desc: 'Coinbase BTC feed',    color: 'var(--green)',  rgb: '45,158,107',  bg: 'var(--green-pale)', border: 'rgba(45,158,107,0.22)' },
   { key: 'markov'          as const, label: 'Markov Gate',      short: 'GATE',     icon: '⬙', desc: 'momentum regime gate', color: 'var(--pink)',   rgb: '212,85,130',  bg: 'var(--pink-pale)',  border: 'rgba(212,85,130,0.22)' },
   { key: 'sentiment'       as const, label: 'Sentiment',        short: 'SENTIMENT',icon: '◉', desc: 'ROMA quant signals',   color: 'var(--blue)',   rgb: '58,114,168',  bg: 'var(--blue-pale)',  border: 'rgba(58,114,168,0.22)' },
   { key: 'probability'     as const, label: 'Probability',      short: 'PROB',     icon: '⬟', desc: 'Hourly P(YES) model',  color: 'var(--amber)',  rgb: '184,121,10',  bg: 'var(--amber-pale)', border: 'rgba(184,121,10,0.22)' },
-  { key: 'execution'       as const, label: 'Execution',        short: 'EXEC',     icon: '▶', desc: 'KXBTCD order',         color: 'var(--green)',  rgb: '45,158,107',  bg: 'var(--green-pale)', border: 'rgba(45,158,107,0.22)' },
+  { key: 'execution'       as const, label: 'Execution',        short: 'EXEC',     icon: '▶', desc: 'BTC Up/Down order',         color: 'var(--green)',  rgb: '45,158,107',  bg: 'var(--green-pale)', border: 'rgba(45,158,107,0.22)' },
 ]
 
-// Hourly KXBTCD mode — Grok price-prediction pipeline, different semantics
+// Hourly BTC Up/Down mode — Grok price-prediction pipeline, different semantics
 const AGENTS_HOURLY: AgentCardConfig[] = [
-  { key: 'marketDiscovery' as const, label: 'Market Discovery', short: 'MARKET',   icon: '◎', desc: 'KXBTCD hourly scan',   color: 'var(--brown)',  rgb: '74,124,142',  bg: 'var(--brown-pale)', border: 'rgba(74,124,142,0.22)' },
+  { key: 'marketDiscovery' as const, label: 'Market Discovery', short: 'MARKET',   icon: '◎', desc: 'BTC Up/Down hourly scan',   color: 'var(--brown)',  rgb: '74,124,142',  bg: 'var(--brown-pale)', border: 'rgba(74,124,142,0.22)' },
   { key: 'priceFeed'       as const, label: 'Price Feed',       short: 'PRICE',    icon: '◈', desc: 'Coinbase BTC feed',    color: 'var(--green)',  rgb: '45,158,107',  bg: 'var(--green-pale)', border: 'rgba(45,158,107,0.22)' },
   { key: 'markov'          as const, label: 'Markov Gate',      short: 'GATE',     icon: '⬙', desc: 'momentum regime gate', color: 'var(--pink)',   rgb: '212,85,130',  bg: 'var(--pink-pale)',  border: 'rgba(212,85,130,0.22)' },
   { key: 'sentiment'       as const, label: 'Grok Forecast',    short: 'FORECAST', icon: '◉', desc: 'Price prediction',     color: 'var(--blue)',   rgb: '58,114,168',  bg: 'var(--blue-pale)',  border: 'rgba(58,114,168,0.22)' },
@@ -339,7 +339,7 @@ function ProbabilityBody({ output, color, aiMode }: { output: ProbabilityOutput;
     <div>
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
         <div>
-          <div style={{ fontSize: 8, color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 2 }}>P(YES) — model</div>
+          <div style={{ fontSize: 8, color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 2 }}>P(Up) — model</div>
           <div style={{ fontFamily: 'var(--font-geist-mono)', fontSize: 28, fontWeight: 900, color: recColor, letterSpacing: '-0.04em', lineHeight: 1 }}>
             {(pModel * 100).toFixed(1)}%
           </div>
@@ -375,7 +375,7 @@ function ProbabilityBody({ output, color, aiMode }: { output: ProbabilityOutput;
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
         <span style={{ fontSize: 10, fontWeight: 900, color: recColor, letterSpacing: '0.04em' }}>
-          {rec === 'YES' ? 'BUY YES' : rec === 'NO' ? 'BUY NO' : 'PASS'}
+          {rec === 'YES' ? 'BUY UP' : rec === 'NO' ? 'BUY DOWN' : 'PASS'}
         </span>
         <span style={{ fontSize: 9, fontWeight: 700, color: confColor, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{conf}</span>
         {output.gkVol15m != null && (
@@ -412,7 +412,7 @@ function MarkovBody({ output, color }: { output: MarkovOutput; color: string }) 
 
   const dirColor  = rec === 'YES' ? 'var(--green)' : rec === 'NO' ? 'var(--blue)' : 'var(--text-muted)'
   const strong    = enterYes || enterNo
-  const strongLbl = enterYes ? 'strong YES' : enterNo ? 'strong NO' : null
+  const strongLbl = enterYes ? 'strong UP' : enterNo ? 'strong DOWN' : null
 
   // Signal strength bar: how far p is from 50/50 (0% = coin flip, 100% = certain)
   const signalPct = Math.min(100, Math.abs(pYes - 0.5) * 200)
@@ -500,7 +500,7 @@ function ExecutionBody({ output, color, riskRejectionReason }: { output: Executi
           <div style={{ fontSize: 8, color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 3 }}>Order</div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 7 }}>
             <span style={{ fontFamily: 'var(--font-geist-mono)', fontSize: 20, fontWeight: 900, color: actionColor, letterSpacing: '-0.01em' }}>
-              {action.replace('_', ' ')}
+              {action === 'BUY_YES' ? 'BUY UP' : action === 'BUY_NO' ? 'BUY DOWN' : action.replace('_', ' ')}
             </span>
             {output.limitPrice != null && (
               <span style={{ fontFamily: 'var(--font-geist-mono)', fontSize: 13, fontWeight: 700, color: 'var(--text-secondary)' }}>

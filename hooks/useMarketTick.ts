@@ -1,15 +1,25 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import type { KalshiMarket, KalshiOrderbook, PricePoint } from '@/lib/types'
+import type { PolyMarket, PolyBook } from '@/lib/polymarket/types'
+import type { PricePoint } from '@/lib/types'
 
-const QUOTE_MS  = 250    // 250ms YES/NO bid/ask refresh (4 req/s — well within Kalshi Basic 20/s)
+// UI view of a market: the shared-feed PolyMarket plus a few optional display-only
+// fields the dashboards still reference (price-to-beat subtitle, volume/OI).
+export type UiMarket = PolyMarket & {
+  yes_sub_title?: string
+  no_sub_title?: string
+  volume?: number
+  open_interest?: number
+}
+
+const QUOTE_MS  = 250    // 250ms Up/Down bid/ask refresh (4 req/s — well within the poly-dash feed limits)
 const BTC_MS    = 1_000  // 1s BTC price refresh (Coinbase public API, no strict limit)
 const OB_MS     = 500    // 500ms orderbook depth refresh
 
 interface MarketTick {
-  liveMarket: KalshiMarket | null
-  liveOrderbook: KalshiOrderbook | null
+  liveMarket: UiMarket | null
+  liveOrderbook: PolyBook | null
   liveBTCPrice: number | null
   livePriceHistory: PricePoint[]
   refresh: () => void
@@ -34,8 +44,8 @@ async function fetchWithRetry(url: string, retries = 3): Promise<Response> {
  *   3. OB     — 1s     — /api/orderbook/{ticker}
  */
 export function useMarketTick(ticker: string | null, marketMode: '15m' | 'hourly' = '15m'): MarketTick {
-  const [liveMarket,       setLiveMarket]       = useState<KalshiMarket | null>(null)
-  const [liveOrderbook,    setLiveOrderbook]    = useState<KalshiOrderbook | null>(null)
+  const [liveMarket,       setLiveMarket]       = useState<UiMarket | null>(null)
+  const [liveOrderbook,    setLiveOrderbook]    = useState<PolyBook | null>(null)
   const [liveBTCPrice,     setLiveBTCPrice]     = useState<number | null>(null)
   const [livePriceHistory, setLivePriceHistory] = useState<PricePoint[]>([])
 
@@ -58,7 +68,7 @@ export function useMarketTick(ticker: string | null, marketMode: '15m' | 'hourly
   const quoteTickRef = useRef<(() => void) | null>(null)
   const refresh = useCallback(() => { quoteTickRef.current?.() }, [])
 
-  // ── Loop 1: YES/NO bid/ask — 500ms ──────────────────────────────────────────
+  // ── Loop 1: Up/Down bid/ask — 500ms ──────────────────────────────────────────
   useEffect(() => {
     let mounted = true
     // Exponential backoff when no active window (503s during off-hours)
@@ -73,8 +83,8 @@ export function useMarketTick(ticker: string | null, marketMode: '15m' | 'hourly
         const t = prevTickerRef.current
         // If current market has passed its close_time, discover the next one
         const marketClosed = marketCloseRef.current !== null && marketCloseRef.current < Date.now()
-        // In hourly mode: never fall back to /api/markets (which returns KXBTC15M).
-        // Pipeline provides the KXBTCD ticker — just stay quiet until it arrives.
+        // In hourly mode: never fall back to /api/markets (which returns the 5m/15m markets).
+        // Pipeline provides the hourly BTC Up/Down ticker — just stay quiet until it arrives.
         const isHourly = marketModeRef.current === 'hourly'
         const url = (t && !marketClosed)
           ? `/api/market-quote/${encodeURIComponent(t)}`
@@ -92,11 +102,11 @@ export function useMarketTick(ticker: string | null, marketMode: '15m' | 'hourly
         const data = await res.json()
 
         // /api/market-quote returns { market } ; /api/markets returns { markets: [] }
-        let market: KalshiMarket | null = null
+        let market: UiMarket | null = null
         if (data.market && !marketClosed) {
           market = data.market
         } else if (data.markets?.length) {
-          const isLive = (m: KalshiMarket) => (m.yes_ask ?? 0) > 1 && (m.yes_ask ?? 100) < 99
+          const isLive = (m: UiMarket) => (m.yes_ask ?? 0) > 1 && (m.yes_ask ?? 100) < 99
           market = data.markets.find(isLive) ?? null
           // Auto-switch to the newly discovered market
           if (market && market.ticker !== prevTickerRef.current) {
@@ -164,7 +174,7 @@ export function useMarketTick(ticker: string | null, marketMode: '15m' | 'hourly
         const res = await fetchWithRetry(`/api/orderbook/${encodeURIComponent(t)}`)
         if (res.ok && mounted) {
           const data = await res.json()
-          if (data.orderbook) setLiveOrderbook(data.orderbook)
+          if (data && data.tokenId) setLiveOrderbook(data)
         }
       } catch { /* network blip */ }
     }

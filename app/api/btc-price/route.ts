@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import https from 'node:https'
+import { polyFeed } from '@/lib/polymarket/feed'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -35,6 +36,8 @@ function coinbaseFetch(url: string, timeoutMs = 5_000): Promise<Response> {
 }
 
 export async function GET() {
+  polyFeed.start()
+
   // ── Serve cache if fresh ───────────────────────────────────────────────────
   const cached = g._btcPriceCache
   if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
@@ -47,7 +50,20 @@ export async function GET() {
     })
   }
 
-  // ── Coinbase Exchange — same feed Kalshi settles KXBTC15M against ──────────
+  // ── Prefer the live BTC index from the shared poly-dash feed ──────────────
+  const fq = polyFeed.quote()
+  if (fq && fq.price > 0) {
+    g._btcPriceCache = { price: fq.price, change24h: fq.percent_change_24h, source: 'poly-feed', at: Date.now() }
+    return NextResponse.json({
+      price:              fq.price,
+      percent_change_1h:  fq.percent_change_1h,
+      percent_change_24h: fq.percent_change_24h,
+      source:             'poly-feed',
+      last_updated:       new Date().toISOString(),
+    })
+  }
+
+  // ── Coinbase Exchange — the BTC index feed ────────────────────────────────
   try {
     const res = await coinbaseFetch('https://api.exchange.coinbase.com/products/BTC-USD/ticker')
     if (res.ok) {

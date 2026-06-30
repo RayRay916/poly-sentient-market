@@ -86,7 +86,7 @@ export default function AgentPage() {
                     display: 'flex', alignItems: 'center', gap: 5,
                   }}
                 >
-                  {m === '15m' ? 'KXBTC15M' : 'KXBTCD · 1h'}
+                  {m === '15m' ? 'BTC Up/Down · 15m' : 'BTC Up/Down · 1h'}
                   {agentOn && (
                     <span style={{ width: 5, height: 5, borderRadius: '50%', background: isActive ? '#fff' : 'var(--green)', display: 'inline-block', flexShrink: 0 }} />
                   )}
@@ -99,7 +99,7 @@ export default function AgentPage() {
             fontSize: 9, color: 'var(--text-muted)', padding: '2px 8px', borderRadius: 6,
             background: 'var(--bg-secondary)', border: '1px solid var(--border)',
           }}>
-            {market === '15m' ? 'Tiered Kelly · Markov + RiskManager' : '1h KXBTCD · Markov + RiskManager · Coinbase'}
+            {market === '15m' ? 'Tiered Kelly · Markov + RiskManager' : '1h BTC Up/Down · Markov + RiskManager · Coinbase'}
           </span>
 
           {(engine.error || startError) && (

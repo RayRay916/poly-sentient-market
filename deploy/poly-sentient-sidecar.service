@@ -1,0 +1,20 @@
+[Unit]
+Description=poly-sentient Kalshi real-time sidecar (WS + window engine + guard)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ray
+WorkingDirectory=/home/ray/poly-sentient-market/sidecar
+EnvironmentFile=/home/ray/poly-sentient-market/sidecar/.env
+Environment=PATH=/home/ray/.nvm/versions/node/v24.18.0/bin:/usr/local/bin:/usr/bin:/bin
+Environment=NODE_ENV=production
+ExecStart=/home/ray/.nvm/versions/node/v24.18.0/bin/node --import tsx /home/ray/poly-sentient-market/sidecar/src/index.ts
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

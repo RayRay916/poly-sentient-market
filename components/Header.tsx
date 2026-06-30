@@ -59,7 +59,7 @@ export default function Header({ cycleId, isRunning, lastCompletedAt, onRunCycle
               Sentient <span style={{ color: 'var(--blue)' }}>ROMA</span>
             </div>
             <div style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginTop: 1 }}>
-              Multi-Agent Pipeline · Kalshi KXBTC15M
+              Multi-Agent Pipeline · Polymarket BTC Up/Down
             </div>
           </div>
         </div>
@@ -92,7 +92,7 @@ export default function Header({ cycleId, isRunning, lastCompletedAt, onRunCycle
         <div style={{ height: 22, width: 1, background: 'var(--border)', margin: '0 2px' }} />
 
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.03em' }}>KXBTC15M</span>
+          <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.03em' }}>BTC Up/Down</span>
           <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 600, color: 'var(--green-dark)' }}>
             <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--green)', display: 'inline-block' }} />
             Live · 15-min BTC

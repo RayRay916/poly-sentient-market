@@ -62,7 +62,7 @@ export default function HourlyHeader({ cycleId, isRunning, lastCompletedAt, onRu
               Sentient <span style={{ color: 'var(--pink)' }}>HOURLY</span>
             </div>
             <div style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginTop: 1 }}>
-              Grok Price Prediction · Kalshi KXBTCD
+              Grok Price Prediction · Polymarket BTC Up/Down
             </div>
           </div>
         </div>
@@ -111,7 +111,7 @@ export default function HourlyHeader({ cycleId, isRunning, lastCompletedAt, onRu
         <div style={{ height: 22, width: 1, background: 'var(--border)', margin: '0 2px' }} />
 
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.03em' }}>KXBTCD</span>
+          <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.03em' }}>BTC Up/Down</span>
           <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 600, color: 'var(--pink)' }}>
             <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--pink)', display: 'inline-block', animation: 'pulse-live 2s ease-in-out infinite' }} />
             Live · 1h BTC

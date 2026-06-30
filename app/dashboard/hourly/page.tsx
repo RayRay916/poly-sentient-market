@@ -11,9 +11,9 @@ import SignalPanel from '@/components/SignalPanel'
 import PositionsPanel from '@/components/PositionsPanel'
 import PipelineHistory from '@/components/PipelineHistory'
 
-// Hourly (KXBTCD) dashboard — completely separate from the 15m app.
+// Hourly (BTC Up/Down) dashboard — completely separate from the 15m app.
 // - Always uses Grok (price prediction). No QUANT option.
-// - Polls KXBTCD markets only — never touches KXBTC15M.
+// - Polls BTC Up/Down hourly markets only — never touches the 15m window.
 // - Late-start warning at 10 min remaining (not 2 min).
 
 export default function HourlyDashboard() {
@@ -52,7 +52,7 @@ export default function HourlyDashboard() {
     return () => document.removeEventListener('mousedown', handleClick)
   }, [grokMenuOpen])
 
-  // Market tick — KXBTCD only. Starts null, set from pipeline after first run.
+  // Market tick — BTC Up/Down hourly only. Starts null, set from pipeline after first run.
   const [marketTicker, setMarketTicker] = useState<string | null>(null)
   const { liveMarket, liveOrderbook, liveBTCPrice, livePriceHistory, refresh: refreshMarket } = useMarketTick(marketTicker, 'hourly')
 
@@ -96,7 +96,7 @@ export default function HourlyDashboard() {
     : (mdMarketExpired ? null : mdMarket)
 
   // When the live market has expired, clear marketTicker so useMarketTick
-  // auto-discovers the next active KXBTCD market instead of polling the dead one.
+  // auto-discovers the next active BTC Up/Down hourly market instead of polling the dead one.
   useEffect(() => {
     if (liveMarketExpired) setMarketTicker(null)
   }, [liveMarketExpired])
@@ -218,7 +218,7 @@ export default function HourlyDashboard() {
               <div>
                 <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 2 }}>Grok Hourly Signal</div>
                 <div style={{ fontSize: 18, fontWeight: 800, color: tradeAlert.side === 'yes' ? 'var(--green-dark)' : 'var(--pink)', lineHeight: 1 }}>
-                  BUY {tradeAlert.side.toUpperCase()} @ {tradeAlert.limitPrice}¢
+                  BUY {tradeAlert.side === 'yes' ? 'UP' : 'DOWN'} @ {tradeAlert.limitPrice}¢
                 </div>
               </div>
             </div>
@@ -254,7 +254,7 @@ export default function HourlyDashboard() {
         {error === 'KXBTCD_NO_MARKET' && (
           <div style={{ marginBottom: 14, padding: '12px 18px', borderRadius: 12, background: 'rgba(224,111,160,0.06)', border: '1px solid rgba(224,111,160,0.2)', fontSize: 12, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ fontSize: 16 }}>◷</span>
-            <span><strong style={{ color: 'var(--text-primary)' }}>No KXBTCD market open right now.</strong> Kalshi hourly BTC markets run during active trading hours. Check back later or <button onClick={runCycle} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--pink)', fontWeight: 700, fontSize: 12, padding: 0 }}>retry</button>.</span>
+            <span><strong style={{ color: 'var(--text-primary)' }}>No BTC Up/Down hourly market open right now.</strong> Polymarket hourly BTC markets run during active trading hours. Check back later or <button onClick={runCycle} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--pink)', fontWeight: 700, fontSize: 12, padding: 0 }}>retry</button>.</span>
           </div>
         )}
 
@@ -279,7 +279,7 @@ export default function HourlyDashboard() {
               <div className="card bracket-card animate-fade-in" style={{ borderColor: exec.action === 'BUY_YES' ? 'rgba(45,158,107,0.3)' : 'rgba(58,114,168,0.3)', background: 'var(--bg-card)' }}>
                 <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6, color: exec.action === 'BUY_YES' ? 'var(--green-dark)' : 'var(--blue-dark)' }}>
                   <span style={{ fontSize: 16 }}>{exec.action === 'BUY_YES' ? '↑' : '↓'}</span>
-                  {exec.action === 'BUY_YES' ? 'BUY YES' : 'BUY NO'} — Latest Signal
+                  {exec.action === 'BUY_YES' ? 'BUY UP' : 'BUY DOWN'} — Latest Signal
                   <span style={{ marginLeft: 'auto', fontSize: 9, fontWeight: 700, color: 'var(--pink)', background: 'var(--pink-pale)', border: '1px solid rgba(224,111,160,0.25)', borderRadius: 4, padding: '1px 5px' }}>1H</span>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 7 }}>
@@ -321,7 +321,7 @@ export default function HourlyDashboard() {
               {/* Mode badge */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8, background: 'rgba(224,111,160,0.12)', border: '1px solid rgba(224,111,160,0.3)', flexShrink: 0 }}>
                 <span style={{ fontSize: 11, color: 'var(--pink)', fontWeight: 800 }}>◷ 1H</span>
-                <span style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 600 }}>KXBTCD · {aiMode ? 'Grok Forecast' : 'Quant'}</span>
+                <span style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 600 }}>BTC Up/Down · {aiMode ? 'Grok Forecast' : 'Quant'}</span>
               </div>
 
               {/* Quant | AI toggle */}

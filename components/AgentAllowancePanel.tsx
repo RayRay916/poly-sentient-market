@@ -55,7 +55,7 @@ export default function AgentAllowancePanel({
   }, [serverD])
   useEffect(() => { setLocalKelly(prev => prev !== kellyMode ? kellyMode : prev) }, [kellyMode])
   useEffect(() => { setLocalAiMode(prev => prev !== aiMode ? aiMode : prev) }, [aiMode])
-  // Prefer defaultBankroll (live Kalshi balance) over server bankroll for initial display
+  // Prefer defaultBankroll (live Polymarket balance) over server bankroll for initial display
   useEffect(() => {
     if (defaultBankroll && defaultBankroll > 0 && !active) {
       setLocalBankroll(prev => prev !== defaultBankroll ? defaultBankroll : prev)

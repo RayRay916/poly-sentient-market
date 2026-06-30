@@ -29,7 +29,7 @@ function r(...extra: (string | undefined)[]) {
 
 // ── Data ──────────────────────────────────────────────────────────────────────
 const PIPELINE = [
-  { num: '01', name: 'Market Discovery',  desc: 'Finds the active KXBTC15M window. Reads floor strike, close time and live bid/ask from Kalshi.' },
+  { num: '01', name: 'Market Discovery',  desc: 'Finds the active BTC Up/Down window. Reads floor strike, close time and live bid/ask from Polymarket.' },
   { num: '02', name: 'Price Feed',        desc: 'Live BTC spot from Coinbase. 15-min OHLCV candles + 1-min intra-window feed. Bybit perp funding rate.' },
   { num: '03', name: 'Quant Signals',     desc: 'RSI, MACD, Bollinger %B, Garman-Klass vol, Brownian motion and log-normal binary priors — all computed before any LLM call.' },
   { num: '04', name: 'Sentiment Agent',   desc: 'ROMA loop on OpenRouter. Synthesises regime, velocity, momentum and orderbook pressure into a directional score. Streams live.' },
@@ -51,7 +51,7 @@ const CODE = [
   { k: 'gk_vol_1h',    v: '0.48%',   c: '// annualised σ via OHLC',    hi: 'amber' },
   { k: 'autocorr_1',   v: '+0.31',   c: '// trending regime',          hi: '' },
   { k: 'velocity',     v: '+$2.1/m', c: '// approaching strike',       hi: '' },
-  { k: 'p_brownian',   v: '0.612',   c: '// Brownian P(YES)',          hi: '' },
+  { k: 'p_brownian',   v: '0.612',   c: '// Brownian P(Up)',           hi: '' },
   { k: 'p_lnBinary',   v: '0.598',   c: '// Black-Scholes digital',    hi: '' },
   { k: 'p_blended',    v: '0.638',   c: '// time-weighted blend',      hi: '' },
   { k: 'edge',         v: '+8.3pp',  c: '// vs market 55.5¢',          hi: 'green' },
@@ -80,7 +80,7 @@ export default function Landing() {
       {/* Hero */}
       <section className={s.hero}>
         <div className={s.heroInner}>
-          <p className={s.heroEyebrow}>KXBTC15M · Kalshi Binary Markets</p>
+          <p className={s.heroEyebrow}>BTC Up/Down · Polymarket Binary Markets</p>
           <h1 className={s.heroHeadline}>
             A QUANT<br />
             <span className={s.heroAccent}>EDGE</span> ON<br />
@@ -214,18 +214,18 @@ export default function Landing() {
             TRADE THE<br />NEXT WINDOW
           </h2>
           <p className={`${s.ctaSub} ${r(s.d1)}`}>
-            Live BTC data · Kalshi orderbook · OpenRouter + Gemini 2.5 · streaming agents.
+            Live BTC data · Polymarket orderbook · OpenRouter + Gemini 2.5 · streaming agents.
           </p>
           <div className={`${s.ctaBtns} ${r(s.d2)}`}>
             <Link href="/dashboard" className={s.btnPrimary}>Open Dashboard →</Link>
-            <Link href="/settings"  className={s.btnSecondary}>Connect Kalshi</Link>
+            <Link href="/settings"  className={s.btnSecondary}>Connect Polymarket</Link>
           </div>
         </div>
       </section>
 
       {/* Footer */}
       <footer className={s.footer}>
-        <span className={s.footerBrand}>Sentient ROMA · KXBTC15M · Powered by OpenRouter</span>
+        <span className={s.footerBrand}>Sentient ROMA · BTC Up/Down · Powered by OpenRouter</span>
         <div className={s.footerLinks}>
           <Link href="/dashboard" className={s.footerLink}>Dashboard</Link>
           <Link href="/settings"  className={s.footerLink}>Settings</Link>

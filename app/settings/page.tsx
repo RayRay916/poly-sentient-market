@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { useAppwrite } from '@/contexts/AppwriteContext'
 
 type ConnStatus = 'checking' | 'connected' | 'unconfigured' | 'error'
-type CredSource = 'ui' | 'env' | 'none' | 'db'
+type CredSource = 'ui' | 'env' | 'none' | 'db' | 'exec-wallet'
 
 interface BalanceData {
   balance?: number
@@ -17,6 +17,7 @@ interface ConnectStatus {
   connected: boolean
   source: CredSource
   apiKey?: string
+  balanceUsd?: number
 }
 
 interface ConfigData {
@@ -27,8 +28,8 @@ interface ConfigData {
   openrouterKeyHint: string | null
   xaiKeySet:         boolean
   anthropicKeySet:   boolean
-  kalshiApiKey:      string | null
-  kalshiKeyPath:     string | null
+  walletConfigured:  boolean
+  execUrl:           string | null
 }
 
 export default function SettingsPage() {
@@ -193,6 +194,7 @@ export default function SettingsPage() {
   const sourceLabel = credSource === 'db'  ? 'Your account'
     : credSource === 'ui'  ? 'UI upload'
     : credSource === 'env' ? 'Environment vars'
+    : credSource === 'exec-wallet' ? 'Exec wallet'
     : null
 
   return (
@@ -235,7 +237,7 @@ export default function SettingsPage() {
 
       <main style={{ maxWidth: 640, margin: '0 auto', padding: '48px 24px' }}>
 
-        {/* ── Kalshi Connection card ── */}
+        {/* ── Polymarket Connection card ── */}
         <div style={{
           background: 'var(--bg-card)', border: '1px solid var(--border)',
           borderRadius: 16, padding: '28px 28px 24px', marginBottom: 20,
@@ -244,10 +246,10 @@ export default function SettingsPage() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
             <div>
               <div style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.01em', marginBottom: 3 }}>
-                Kalshi Connection
+                Polymarket Connection
               </div>
               <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                API key + RSA private key for order signing
+                Wallet configured server-side in exec-rs for order signing
               </div>
             </div>
 
@@ -365,13 +367,13 @@ export default function SettingsPage() {
           {(connStatus === 'unconfigured' || connStatus === 'error') && (
             <div style={{ marginTop: connStatus === 'error' ? 0 : 4 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 14 }}>
-                Connect your Kalshi account
+                Connect your Polymarket account
               </div>
 
               {/* Step instructions */}
               <ol style={{ margin: '0 0 20px', padding: '0 0 0 18px', display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {[
-                  <>Log in to <strong>kalshi.com</strong> → Account → API Access → Create API Key.</>,
+                  <>Log in to <strong>polymarket.com</strong> → Account → API Access → Create API Key.</>,
                   <>Copy the <strong>API Key ID</strong> (UUID format) shown after creation.</>,
                   <>Download the <strong>RSA private key</strong> (.pem file) — save it securely.</>,
                   <>Drag the <strong>.pem file</strong> onto the drop zone below, or click to browse.</>,
@@ -586,8 +588,8 @@ export default function SettingsPage() {
 { label: 'OpenRouter Key',  key: 'OPENROUTER_API_KEY',  value: config.openrouterKeySet ? (config.openrouterKeyHint ?? '✓ set') : '✗ not set', desc: 'Required when AI_PROVIDER=openrouter' },
               { label: 'xAI / Grok Key', key: 'XAI_API_KEY',         value: config.xaiKeySet ? '✓ set' : '✗ not set',         desc: 'Required when AI_PROVIDER=grok' },
               { label: 'Anthropic Key',   key: 'ANTHROPIC_API_KEY',   value: config.anthropicKeySet ? '✓ set' : '✗ not set',   desc: 'Required when AI_PROVIDER=anthropic' },
-              { label: 'Kalshi API Key',  key: 'KALSHI_API_KEY',      value: config.kalshiApiKey ?? '✗ not set',               desc: 'Kalshi key ID (env var fallback)' },
-              { label: 'Kalshi Key Path', key: 'KALSHI_PRIVATE_KEY_PATH', value: config.kalshiKeyPath ?? '✗ not set',          desc: 'Path to .pem file (env var fallback)' },
+              { label: 'Wallet',          key: 'EXEC_WALLET',         value: config.walletConfigured ? '✓ configured' : '✗ not set', desc: 'Polymarket wallet (exec-rs/.env)' },
+              { label: 'Exec URL',        key: 'EXEC_URL',            value: config.execUrl ?? '✗ not set',                    desc: 'Polymarket exec service endpoint' },
             ].map(({ label, key, value, desc }) => (
               <div key={key} style={{
                 display: 'grid', gridTemplateColumns: '160px 1fr', gap: 12, alignItems: 'start',

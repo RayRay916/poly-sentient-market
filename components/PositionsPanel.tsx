@@ -1,25 +1,68 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import type { KalshiBalance, KalshiPosition, KalshiOrder, KalshiFill } from '@/lib/types'
+
+// Local view types — the shapes this panel renders, sourced from the Polymarket
+// shared feed via /api/balance + /api/positions (plain local types).
+interface BalanceData {
+  balance: number          // cents
+  portfolio_value: number  // cents
+}
+interface PositionRow {
+  ticker: string
+  position: number         // signed shares: + = Up, − = Down
+  realized_pnl: number     // cents
+  market_exposure: number  // cents
+}
+interface OrderRow {
+  order_id: string
+  ticker: string
+  side: 'yes' | 'no'
+  action: 'buy' | 'sell'
+  fill_count: number
+  remaining_count: number
+  yes_price: number        // cents
+  no_price: number         // cents
+}
+interface FillRow {
+  fill_id: string
+  ticker: string
+  side: 'yes' | 'no'
+  action: 'buy' | 'sell'
+  count: number
+  yes_price: number        // cents
+  no_price: number         // cents
+  created_time: string
+}
+// One position as delivered by the shared feed (keyed by tokenId).
+interface FeedPosition {
+  outcome?: string
+  size?: number
+  cash_pnl?: number
+  current_value?: number
+  condition_id?: string
+}
 
 interface PortfolioData {
-  balance: KalshiBalance | null
-  positions: KalshiPosition[]
-  orders: KalshiOrder[]
-  fills: KalshiFill[]
+  balance: BalanceData | null
+  positions: PositionRow[]
+  orders: OrderRow[]
+  fills: FillRow[]
 }
 
 function fmtTicker(ticker: string): string {
-  const m = ticker.match(/KXBTC15M-(\d{2})([A-Z]{3})(\d{2})(\d{2})(\d{2})/)
+  // Polymarket slugs: btc-updown-{5m,15m,1h}-{unixTs}. Render a short, readable handle.
+  const m = ticker.match(/btc-updown-(5m|15m|1h)-(\d+)/)
   if (m) {
-    const [, , mon, day, hh, mm] = m
-    return `${parseInt(day)} ${mon[0]+mon.slice(1).toLowerCase()} ${hh}:${mm}`
+    const [, tf, ts] = m
+    const d = new Date(Number(ts) * 1000)
+    return `${tf} ${d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })}`
   }
-  return ticker.replace('KXBTC15M-', '')
+  // condition ids / token ids are long hex — truncate the middle.
+  return ticker.length > 16 ? `${ticker.slice(0, 8)}…${ticker.slice(-4)}` : ticker
 }
 
-function orderPrice(ord: KalshiOrder): number {
+function orderPrice(ord: OrderRow): number {
   return ord.side === 'yes' ? ord.yes_price : ord.no_price
 }
 
@@ -28,7 +71,7 @@ function SideTag({ action, side }: { action: string; side: string }) {
   const isYes = side === 'yes'
   const isBuy = action === 'buy'
   const color = isYes ? 'var(--green-dark)' : 'var(--pink-dark)'
-  const label = `${isBuy ? 'Buy' : 'Sell'} ${isYes ? 'Yes' : 'No'}`
+  const label = `${isBuy ? 'Buy' : 'Sell'} ${isYes ? 'Up' : 'Down'}`
   return (
     <span style={{
       fontSize: 10, fontWeight: 700, color,
@@ -62,19 +105,32 @@ export default function PositionsPanel({ liveMode }: { liveMode: boolean }) {
           ? String(rawErr.message ?? rawErr.code)
           : `Auth error (HTTP ${balRes.status})`
         const errMsg = base === 'authentication_error'
-          ? 'Kalshi maintenance — try again shortly'
+          ? 'Polymarket maintenance — try again shortly'
           : base
         setError(errMsg)
         setLoading(false)
         return
       }
 
-      let positions: KalshiPosition[] = []
-      let orders: KalshiOrder[] = []
-      let fills: KalshiFill[] = []
+      let positions: PositionRow[] = []
+      let orders: OrderRow[] = []
+      let fills: FillRow[] = []
       if (posRes.ok) {
         const d = await posRes.json()
-        positions = d.positions ?? []
+        // Polymarket positions arrive keyed by tokenId from the shared feed.
+        // Flatten into the rows this panel renders (the layout is unchanged).
+        const posRec = (d.positions ?? {}) as Record<string, FeedPosition>
+        positions = Object.entries(posRec).map(([tokenId, p]): PositionRow => {
+          const outcome = String(p.outcome ?? '').toLowerCase()
+          const isUp = outcome.startsWith('up') || outcome === 'yes'
+          const size = Number(p.size) || 0
+          return {
+            ticker: String(p.condition_id || tokenId),
+            position: isUp ? size : -size,
+            realized_pnl: Math.round((Number(p.cash_pnl) || 0) * 100),
+            market_exposure: Math.round((Number(p.current_value) || 0) * 100),
+          }
+        }).filter(r => r.position !== 0)
         orders = d.orders ?? []
         fills = d.fills ?? []
       }
@@ -118,7 +174,7 @@ export default function PositionsPanel({ liveMode }: { liveMode: boolean }) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--green)', display: 'inline-block' }} />
-          <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', letterSpacing: '-0.01em' }}>Kalshi Account</span>
+          <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', letterSpacing: '-0.01em' }}>Polymarket Account</span>
         </div>
         <button onClick={fetchPortfolio} disabled={loading}
           style={{ background: 'none', border: 'none', cursor: loading ? 'wait' : 'pointer', fontSize: 13, color: 'var(--text-muted)', padding: 0, lineHeight: 1 }}
@@ -185,7 +241,7 @@ export default function PositionsPanel({ liveMode }: { liveMode: boolean }) {
                   <div style={{ width: 3, height: 28, borderRadius: 2, background: color, flexShrink: 0 }} />
                   <div>
                     <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'var(--font-geist-mono)' }}>
-                      {qty}× <span style={{ color }}>{isYes ? 'YES' : 'NO'}</span>
+                      {qty}× <span style={{ color }}>{isYes ? 'UP' : 'DOWN'}</span>
                     </div>
                     <div style={{ fontSize: 9, color: 'var(--text-muted)', marginTop: 1 }}>{fmtTicker(pos.ticker)}</div>
                   </div>

@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: 'Sentient Market Reader — ROMA Algotrader',
-  description: 'ROMA multi-agent pipeline for Kalshi KXBTC15M BTC prediction markets',
+  description: 'ROMA multi-agent pipeline for Polymarket BTC Up/Down prediction markets',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

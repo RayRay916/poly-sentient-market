@@ -91,11 +91,11 @@ export default function AgentStatsPanel({ stats, allowance, initialAllowance, ka
         ))}
       </div>
 
-      {/* ── Kalshi live balance ── */}
+      {/* ── Polymarket live balance ── */}
       {baseBalance > 0 && (
         <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 8, background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>Kalshi balance</span>
+            <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>Polymarket balance</span>
             <span style={{ fontSize: 12, fontFamily: 'var(--font-geist-mono)', fontWeight: 800, color: 'var(--text-primary)' }}>
               ${accountBalance.toFixed(2)}
             </span>

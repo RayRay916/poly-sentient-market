@@ -177,7 +177,7 @@ export default function Home() {
   const priceHistory    = livePriceHistory
 
   // Derive strike + expiry directly from live market so they show before pipeline runs.
-  // yes_sub_title ("Price to beat: $X") matches Kalshi's displayed value — prefer it over
+  // yes_sub_title ("Price to beat: $X") matches Polymarket's displayed value — prefer it over
   // floor_strike which can diverge from the actual displayed strike.
   const liveStrikeFromSubtitle = activeMarket?.yes_sub_title
     ? parseFloat(activeMarket.yes_sub_title.replace(/[^0-9.]/g, ''))
@@ -352,7 +352,7 @@ export default function Home() {
                   Agent Signal
                 </div>
                 <div style={{ fontSize: 18, fontWeight: 800, color: tradeAlert.side === 'yes' ? 'var(--green-dark)' : 'var(--pink)', lineHeight: 1 }}>
-                  BUY {tradeAlert.side.toUpperCase()} @ {tradeAlert.limitPrice}¢
+                  BUY {tradeAlert.side === 'yes' ? 'UP' : 'DOWN'} @ {tradeAlert.limitPrice}¢
                 </div>
               </div>
             </div>
@@ -723,7 +723,7 @@ export default function Home() {
                 <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6,
                   color: exec.action === 'BUY_YES' ? 'var(--green-dark)' : 'var(--blue-dark)' }}>
                   <span style={{ fontSize: 16 }}>{exec.action === 'BUY_YES' ? '↑' : '↓'}</span>
-                  {exec.action === 'BUY_YES' ? 'BUY YES' : 'BUY NO'} — Latest Signal
+                  {exec.action === 'BUY_YES' ? 'BUY UP' : 'BUY DOWN'} — Latest Signal
                   <span style={{ marginLeft: 'auto', fontSize: 9, fontWeight: 700, color: 'var(--green-dark)', background: 'var(--green-pale)', border: '1px solid rgba(45,158,107,0.25)', borderRadius: 4, padding: '1px 5px' }}>LIVE</span>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 7 }}>
@@ -740,15 +740,15 @@ export default function Home() {
                   ))}
                 </div>
                 <div style={{ marginTop: 8, fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                  {exec.rationale.replace('Paper trade only — no real order placed.', 'Live mode — real order placed via Kalshi API.')}
+                  {exec.rationale.replace('Paper trade only — no real order placed.', 'Live mode — real order placed via Polymarket API.')}
                 </div>
                 {md?.activeMarket && (
                   <div style={{ marginTop: 10, padding: '7px 10px', borderRadius: 8, background: 'var(--bg-secondary)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12 }}>
                     <span style={{ fontSize: 8, color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', flexShrink: 0 }}>At run</span>
                     {[
-                      ['YES ask', md.activeMarket.yes_ask],
-                      ['YES bid', md.activeMarket.yes_bid],
-                      ['NO ask',  md.activeMarket.no_ask],
+                      ['UP ask', md.activeMarket.yes_ask],
+                      ['UP bid', md.activeMarket.yes_bid],
+                      ['DOWN ask',  md.activeMarket.no_ask],
                     ].map(([label, val]) => (
                       <span key={label as string} style={{ fontSize: 10, color: 'var(--text-secondary)' }}>
                         <span style={{ color: 'var(--text-muted)', marginRight: 3 }}>{label}</span>
