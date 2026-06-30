@@ -1,48 +1,82 @@
 /**
- * Server-side autonomous trading agent.
+ * Server-side autonomous trading agent — POLYMARKET.
  *
  * Runs entirely in Node.js — immune to browser tab throttling/suspension.
  * Browser clients subscribe for real-time updates via /api/agent/stream (SSE).
  *
- * Lifecycle:
- *   start(allowance) → scheduleNextRun() → [wait for 6–9 min window] →
- *   startDPoller() → [poll BTC every 2s for UI, run Markov pipeline every 30s] →
- *   Markov approves → runCycle() → processResult() → placeOrder() → next window → repeat
- *   Markov blocks  → keep scanning until window expires
+ * Market I/O is shared with poly-dash:
+ *   • market data + BTC quote + orderbook + balance  ← polyFeed (poly-dash /ws + /api/status)
+ *   • order execution                                ← poly-sentient-exec (:4321), own wallet
+ *   • settlement                                     ← poly-dash /api/recent-results
+ *
+ * Lifecycle (unchanged):
+ *   start(allowance) → scheduleNextRun() → [wait] → startDPoller() →
+ *   [poll BTC every 2s, run Markov pipeline every Ns] → Markov approves →
+ *   runCycle() → processResult() → placeOrder() → next window → repeat
  */
 
 import { EventEmitter } from 'events'
 import { runAgentPipeline } from './agents'
-import { buildKalshiHeaders } from './kalshi-auth'
-import { getBalance, placeOrder, limitSellOrder } from './kalshi-trade'
 import { tryLockPipeline, releasePipelineLock } from './pipeline-lock'
 import { appendTrade, updateTrade, readTradeLog, clearTradeLog, saveAgentConfig, loadAgentConfig } from './trade-log'
 import type {
   PipelineState, AgentTrade, AgentStats,
   KalshiMarket, KalshiOrderbook, BTCQuote, OHLCVCandle, DerivativesSignal,
 } from './types'
-import { normalizeKalshiMarket } from './types'
 import type { AIProvider } from './llm-client'
 import { KELLY_FRACTION } from './agent-shared'
 import { recordTradeResult } from './agents/markov'
 import type { AgentStateSnapshot, AgentPhase } from './agent-shared'
 import { agentStore } from './agent-store'
-import { KALSHI_HOST, getCurrentEventTicker, parseKXBTC15MCloseMs } from './kalshi'
+import { polyFeed } from './polymarket/feed'
+import { placeOrder as execPlaceOrder, getBalanceUsd } from './polymarket/exec'
+import type { PolyMarket, Timeframe } from './polymarket/types'
+import { TF_INTERVAL_SEC } from './polymarket/types'
+
+// ── Polymarket wiring ─────────────────────────────────────────────────────────
+const DASH = process.env.POLY_DASH_URL ?? 'http://127.0.0.1:4300'
+/** Which poly-dash window this autonomous trader trades (5m/15m/1h). Default 15m. */
+const TF: Timeframe = (process.env.POLY_TF as Timeframe) || '15m'
+const WINDOW_MS = TF_INTERVAL_SEC[TF] * 1000
+
+/** Polymarket binary up/down markets carry ~no taker fee on these contracts; the
+ *  signer applies feeRateBps server-side. Keep the agent's EV/Kelly math fee-free
+ *  (set >0 here if a venue fee is ever introduced). */
+const polyFee = (_contracts: number, _priceCents: number): number => 0
+
+/** Buy the up/down token for a yes/no side via the exec microservice. */
+async function buy(
+  market: PolyMarket, side: 'yes' | 'no', priceCents: number, contracts: number,
+): Promise<{ ok: boolean; filled: number; orderId?: string; error?: string }> {
+  const tokenId = side === 'yes' ? market.upTokenId : market.downTokenId
+  const r = await execPlaceOrder({
+    tokenId, priceCents, size: contracts, orderType: 'FAK',
+    tickSize: market.tickSize, negRisk: market.negRisk,
+  })
+  const taking = r.takingAmount ? parseFloat(r.takingAmount) : 0
+  const filled = r.ok ? (taking > 0 ? taking : (r.state === 'FILLED' ? contracts : 0)) : 0
+  return { ok: r.ok, filled, orderId: r.orderId, error: r.error }
+}
+
+/** Resolve a window's outcome from poly-dash. windowStart = closeMs/1000 - interval. */
+async function fetchOutcome(closeMs: number): Promise<'up' | 'down' | null> {
+  try {
+    const ws = Math.round(closeMs / 1000) - TF_INTERVAL_SEC[TF]
+    const res = await fetch(`${DASH}/api/recent-results?tf=${TF}`, { cache: 'no-store' })
+    if (!res.ok) return null
+    const j = await res.json() as { results?: { ws: number; outcome: string }[] }
+    const row = (j.results ?? []).find(r => r.ws === ws)
+    return row?.outcome === 'up' ? 'up' : row?.outcome === 'down' ? 'down' : null
+  } catch { return null }
+}
 
 // ── Constants ────────────────────────────────────────────────────────────────
-const TARGET_MINUTES_BEFORE_CLOSE = 14  // start monitoring 14 min before close (1 min into each 15-min window)
+const TARGET_MINUTES_BEFORE_CLOSE = 14  // start monitoring 14 min before close
 const MIN_MINUTES_LEFT       = 2         // safety floor: don't trade with < 2 min left
 const POST_WINDOW_BUFFER_MS  = 5_000
 const MIN_FAST_ENTRY_PRICE     = 55   // ¢ — matches risk manager floor
-const MAX_FAST_ENTRY_PRICE_YES = 72   // ¢ — YES: all buckets ≤72¢ are +EV in live data
-const MAX_FAST_ENTRY_PRICE_NO  = 65   // ¢ — NO: 65¢+ is -EV (consensus-following, bad payout ratio)
-
-// Kalshi maker fee: ceil(0.0175 × C × P × (1-P)) — agent places resting limit orders
-const MAKER_FEE_RATE = 0.0175
-const kalshiFee = (contracts: number, priceCents: number): number => {
-  const p = priceCents / 100
-  return Math.ceil(MAKER_FEE_RATE * contracts * p * (1 - p) * 100) / 100
-}
+const MAX_FAST_ENTRY_PRICE_YES = 72   // ¢
+const MAX_FAST_ENTRY_PRICE_NO  = 65   // ¢
 
 // ── Normal CDF approximation (Abramowitz & Stegun) ───────────────────────────
 function normalCDF(x: number): number {
@@ -54,8 +88,7 @@ function normalCDF(x: number): number {
 
 // ── Window timing helpers ────────────────────────────────────────────────────
 function getWindowClose(): number {
-  const boundary = 15 * 60 * 1000
-  return Math.ceil(Date.now() / boundary) * boundary
+  return Math.ceil(Date.now() / WINDOW_MS) * WINDOW_MS
 }
 
 function getDelayMs(): { delayMs: number; closeMs: number; minutesLeft: number } {
@@ -68,7 +101,7 @@ function getDelayMs(): { delayMs: number; closeMs: number; minutesLeft: number }
   } else if (minutesLeft > TARGET_MINUTES_BEFORE_CLOSE) {
     delayMs = (minutesLeft - TARGET_MINUTES_BEFORE_CLOSE) * 60_000
   } else {
-    const nextCloseMs = closeMs + 15 * 60_000
+    const nextCloseMs = closeMs + WINDOW_MS
     delayMs = nextCloseMs - Date.now() - TARGET_MINUTES_BEFORE_CLOSE * 60_000
   }
 
@@ -103,14 +136,14 @@ class ServerAgent extends EventEmitter {
   private initialAllowance = 100
   private isRunning        = false
   private windowKey:           string | null = null
-  private currentMarketTicker: string        = ''   // full ticker from bootstrap (e.g. KXBTC15M-25MAR221445-T84000)
+  private currentMarketTicker: string        = ''   // Polymarket slug of the active window
   private windowBetPlaced = false
   private currentD     = 0
   private lastPollAt:  number | null = null
   private nextCycleIn  = 0
   private error:       string | null = null
   private orderError:  string | null = null
-  private trades:      AgentTrade[]  = readTradeLog()  // persists across HMR/restarts
+  private trades:      AgentTrade[]  = readTradeLog()
   private pipeline:    PipelineState | null = null
 
   private autoTimeout:       NodeJS.Timeout | null = null
@@ -123,14 +156,14 @@ class ServerAgent extends EventEmitter {
   private orderFailed    = false
   private pipelineError  = false
   private kellyMode      = false
-  private kellyPct       = 0.18   // fraction e.g. 0.18 = 18%
-  private aiMode         = false   // true = unified Grok agent; false = ROMA multi-step
+  private kellyPct       = 0.18
+  private aiMode         = false
   private bankroll       = 0
   private orModel:     string | undefined
   private agentPhase: AgentPhase = 'idle'
   private windowCloseAt = 0
-  private lastKvSave    = 0   // timestamp of last KV write — throttle to 1/10s
-  private lastCycleAt  = 0   // timestamp of last pipeline run — throttle within window
+  private lastKvSave    = 0
+  private lastCycleAt  = 0
 
   // ── Config persistence ─────────────────────────────────────────────────────
 
@@ -147,18 +180,15 @@ class ServerAgent extends EventEmitter {
   }
 
   private restoreConfig() {
-    // Try KV first (cross-instance persistence), fall back to local file
     agentStore.loadState().then(kvState => {
       if (kvState?.active) {
         console.log(`[ServerAgent] Restoring from KV — active=${kvState.active} allowance=$${kvState.allowance} aiMode=${kvState.aiMode}`)
-        // Restore trades from KV too
         agentStore.loadTrades().then(kvTrades => {
           if (kvTrades.length) this.trades = kvTrades
         }).catch(() => {})
         this.start(kvState.allowance, undefined, kvState.kellyMode, kvState.bankroll, undefined, kvState.aiMode ?? false)
         return
       }
-      // KV empty — try local file
       const cfg = loadAgentConfig()
       if (!cfg?.active) return
       console.log(`[ServerAgent] Restoring from disk — kellyMode=${cfg.kellyMode} aiMode=${cfg.aiMode} bankroll=$${cfg.bankroll} allowance=$${cfg.allowance}`)
@@ -169,8 +199,6 @@ class ServerAgent extends EventEmitter {
     })
   }
 
-  // Save state to KV — throttled to at most once per 10s to avoid rate limits.
-  // Force=true bypasses throttle for critical events (start, stop, trade placed).
   private flushToKV(force = false) {
     const now = Date.now()
     if (!force && now - this.lastKvSave < 10_000) return
@@ -182,6 +210,7 @@ class ServerAgent extends EventEmitter {
   // ── Public API ─────────────────────────────────────────────────────────────
 
   start(allowance: number, orModel?: string, kellyMode = false, bankroll?: number, kellyPct = 0.25, aiMode = false) {
+    polyFeed.start()  // ensure the shared feed is consuming poly-dash
     if (this.active) {
       this.allowance  = allowance
       this.orModel    = orModel
@@ -210,8 +239,8 @@ class ServerAgent extends EventEmitter {
     this.startSettlementLoop()
     this.scheduleNextRun()
     this.saveConfig()
-    this.pushState(true)  // force KV flush on start
-    console.log(`[ServerAgent] Started — ${kellyMode ? `Kelly ${kellyPct*100}% bankroll=$${this.bankroll} allowance=$${this.allowance.toFixed(2)}` : `fixed allowance=$${allowance}`} | mode=${aiMode ? 'Grok AI' : 'ROMA'}`)
+    this.pushState(true)
+    console.log(`[ServerAgent] Started — ${kellyMode ? `Kelly ${kellyPct*100}% bankroll=$${this.bankroll} allowance=$${this.allowance.toFixed(2)}` : `fixed allowance=$${allowance}`} | mode=${aiMode ? 'Grok AI' : 'ROMA'} | tf=${TF}`)
   }
 
   stop() {
@@ -220,7 +249,7 @@ class ServerAgent extends EventEmitter {
     this.agentPhase = 'idle'
     this.clearTimers()
     this.saveConfig()
-    this.pushState(true)  // force KV flush on stop
+    this.pushState(true)
     console.log('[ServerAgent] Stopped')
   }
 
@@ -303,11 +332,10 @@ class ServerAgent extends EventEmitter {
     this.stopDPoller()
   }
 
-  /** Schedule the next autoTimeout, ensuring only one is ever pending and it self-nulls on fire. */
   private schedule(fn: () => void, ms: number) {
     if (this.autoTimeout) { clearTimeout(this.autoTimeout); this.autoTimeout = null }
     this.autoTimeout = setTimeout(() => {
-      this.autoTimeout = null   // always null before executing — fixes the stale-reference hang
+      this.autoTimeout = null
       if (this.active) fn()
     }, ms)
   }
@@ -331,22 +359,11 @@ class ServerAgent extends EventEmitter {
     if (!expired.length) return
 
     const settled = await Promise.all(expired.map(async t => {
-      try {
-        const path = `/trade-api/v2/markets/${encodeURIComponent(t.marketTicker)}`
-        const res  = await fetch(`${KALSHI_HOST}${path}`, {
-          headers: { ...buildKalshiHeaders('GET', path), Accept: 'application/json' },
-          cache: 'no-store',
-        })
-        if (res.ok) {
-          const { market } = await res.json()
-          if (market?.result === 'yes' || market?.result === 'no') {
-            const win = t.side === market.result
-            const fee = kalshiFee(t.contracts, t.limitPrice ?? Math.round(t.cost / t.contracts * 100))
-            return { ...t, status: (win ? 'won' : 'lost') as 'won' | 'lost', pnl: win ? t.contracts - t.cost - fee : -t.cost - fee }
-          }
-        }
-      } catch (e) {
-        console.warn(`[ServerAgent] Settlement fetch failed for ${t.marketTicker} — will retry next cycle:`, e)
+      const outcome = await fetchOutcome(new Date(t.expiresAt).getTime())
+      if (outcome) {
+        const win = (t.side === 'yes' && outcome === 'up') || (t.side === 'no' && outcome === 'down')
+        const fee = polyFee(t.contracts, t.limitPrice ?? Math.round(t.cost / t.contracts * 100))
+        return { ...t, status: (win ? 'won' : 'lost') as 'won' | 'lost', pnl: win ? t.contracts - t.cost - fee : -t.cost - fee }
       }
       return t
     }))
@@ -356,7 +373,6 @@ class ServerAgent extends EventEmitter {
 
     this.trades = this.trades.map(t => settled.find(s => s.id === t.id) ?? t)
 
-    // Persist settlement updates to disk log + update session risk state
     for (const t of justSettled) {
       updateTrade(t.id, { status: t.status, pnl: t.pnl, settlementPrice: t.settlementPrice })
       if (t.pnl != null) recordTradeResult(t.pnl)
@@ -364,9 +380,9 @@ class ServerAgent extends EventEmitter {
 
     if (this.kellyMode) {
       for (const t of justSettled) {
-        const fee = kalshiFee(t.contracts, t.limitPrice ?? Math.round(t.cost / t.contracts * 100))
-        if (t.status === 'won') this.bankroll += t.contracts - fee  // $1/contract payout minus maker fee
-        else                    this.bankroll -= fee                 // fee paid on losses too
+        const fee = polyFee(t.contracts, t.limitPrice ?? Math.round(t.cost / t.contracts * 100))
+        if (t.status === 'won') this.bankroll += t.contracts - fee
+        else                    this.bankroll -= fee
       }
       this.bankroll  = Math.max(1, this.bankroll)
       this.allowance = Math.max(1, Math.round(this.bankroll * this.kellyPct * 100) / 100)
@@ -379,12 +395,10 @@ class ServerAgent extends EventEmitter {
   }
 
   /**
-   * Fast-path entry: places an order in ~5s when d triggers, WITHOUT waiting
-   * for the full ROMA pipeline (~90s). Uses d-sign for direction and normalCDF(d)
-   * as the probability estimate for Kelly sizing.
-   *
-   * After this returns, the caller fires runCycle() in the background so the
-   * pipeline UI still updates — but the order is already in.
+   * Fast-path entry: places an order in ~1s when d triggers, WITHOUT waiting for
+   * the full ROMA pipeline. Uses d-sign for direction and normalCDF(d) as the
+   * probability estimate for Kelly sizing. Reads the live market straight from
+   * the shared feed (already real-time — no REST refetch needed).
    */
   private async fastEntry(d: number, closeMs: number): Promise<void> {
     if (!this.active || this.windowBetPlaced || !this.windowKey) return
@@ -394,35 +408,8 @@ class ServerAgent extends EventEmitter {
     const side: 'yes' | 'no' = d > 0 ? 'yes' : 'no'
 
     try {
-      // Fetch a fresh quote using the exact market ticker from bootstrap (most precise).
-      // Falls back to event_ticker query if we don't have a stored ticker yet.
-      let market: KalshiMarket | undefined
-      if (this.currentMarketTicker) {
-        const path = `/trade-api/v2/markets/${encodeURIComponent(this.currentMarketTicker)}`
-        const res  = await fetch(`${KALSHI_HOST}${path}`, {
-          headers: { ...buildKalshiHeaders('GET', path), Accept: 'application/json' },
-          cache: 'no-store',
-          signal: AbortSignal.timeout(5_000),
-        })
-        if (res.ok) {
-          const data = await res.json()
-          market = normalizeKalshiMarket(data.market ?? data)
-        }
-      }
-      if (!market && this.windowKey) {
-        // Fallback: query by event_ticker and pick the one with liquidity on our side
-        const path = '/trade-api/v2/markets'
-        const res  = await fetch(`${KALSHI_HOST}${path}?event_ticker=${encodeURIComponent(this.windowKey)}&limit=10`, {
-          headers: { ...buildKalshiHeaders('GET', path), Accept: 'application/json' },
-          cache: 'no-store',
-          signal: AbortSignal.timeout(5_000),
-        })
-        if (!res.ok) return
-        const data    = await res.json()
-        const markets = (data.markets as unknown[] ?? []).map(normalizeKalshiMarket)
-        market = markets.find(m => (side === 'yes' ? m.yes_ask : m.no_ask) > 0)
-      }
-      if (!market) return
+      const market = polyFeed.market(TF)
+      if (!market || !market.upTokenId) return
 
       const askPrice = side === 'yes' ? market.yes_ask : market.no_ask
       const maxFastPrice = side === 'yes' ? MAX_FAST_ENTRY_PRICE_YES : MAX_FAST_ENTRY_PRICE_NO
@@ -431,79 +418,44 @@ class ServerAgent extends EventEmitter {
         return
       }
 
-      // Kelly sizing using correct maker fee: ceil(0.0175 × C × P × (1-P))
       const pModel       = normalCDF(Math.abs(d))
       const p_d          = askPrice / 100
-      const feePerC      = MAKER_FEE_RATE * p_d * (1 - p_d)           // per-contract approx (pre-ceiling)
+      const feePerC      = 0
       const netWinPerC   = (1 - p_d) - feePerC
       const totalCostPerC = p_d + feePerC
       const b            = netWinPerC / totalCostPerC
       const pWin      = side === 'yes' ? pModel : (1 - pModel)
       const kellyFrac = Math.max(0, (b * pWin - (1 - pWin)) / b)
-      if (kellyFrac <= 0) {
-        console.log(`[ServerAgent] Fast-path: Kelly=0 at ${askPrice}¢ — skip`)
-        return
-      }
-      // After-fee EV gate — must clear minEdgePct (6%) same as main pipeline
+      if (kellyFrac <= 0) { console.log(`[ServerAgent] Fast-path: Kelly=0 at ${askPrice}¢ — skip`); return }
       const edgePct = (pWin * netWinPerC + (1 - pWin) * (-p_d - feePerC)) * 100
-      if (edgePct < 6) {
-        console.log(`[ServerAgent] Fast-path: edge ${edgePct.toFixed(2)}% < 6% — skip`)
-        return
-      }
-      const halfKellyCapital = kellyFrac * 0.18 * this.bankroll  // 18% Kelly, matches main pipeline
+      if (edgePct < 6) { console.log(`[ServerAgent] Fast-path: edge ${edgePct.toFixed(2)}% < 6% — skip`); return }
+      const halfKellyCapital = kellyFrac * 0.18 * this.bankroll
       const contracts        = Math.max(1, Math.round(halfKellyCapital / totalCostPerC))
       const cost             = contracts * totalCostPerC
       if (cost < 1) return
       const expectedProfit = netWinPerC * contracts
-      if (expectedProfit < 2.00) {
-        console.log(`[ServerAgent] Fast-path: net profit $${expectedProfit.toFixed(2)} < $2.00 minimum — skip`)
-        return
-      }
+      if (expectedProfit < 2.00) { console.log(`[ServerAgent] Fast-path: net profit $${expectedProfit.toFixed(2)} < $2.00 — skip`); return }
 
       console.log(`[ServerAgent] ⚡ Fast-path: ${side.toUpperCase()} ${contracts}× @ ${askPrice}¢ | d=${d.toFixed(3)} pModel=${(pModel*100).toFixed(1)}% Kelly=${(kellyFrac*100).toFixed(1)}%`)
 
-      const ioPrice  = Math.min(99, askPrice + 3)
-      const orderRes = await placeOrder({
-        ticker:   market.ticker,
-        side,
-        count:    contracts,
-        yesPrice: side === 'yes' ? ioPrice : undefined,
-        noPrice:  side === 'no'  ? ioPrice : undefined,
-        clientOrderId: `fast-${Date.now()}`,
-        ioc: true,
-      })
-
-      const wasFilled = orderRes.ok && orderRes.order &&
-        ((orderRes.order.fill_count ?? 0) > 0 || orderRes.order.status === 'executed')
-
-      if (!wasFilled) {
-        // Retry once at +5¢ sweep
-        const retryRes = await placeOrder({
-          ticker:   market.ticker,
-          side,
-          count:    contracts,
-          yesPrice: side === 'yes' ? Math.min(99, askPrice + 5) : undefined,
-          noPrice:  side === 'no'  ? Math.min(99, askPrice + 5) : undefined,
-          clientOrderId: `fast-retry-${Date.now()}`,
-          ioc: true,
-        })
-        const retryFilled = retryRes.ok && retryRes.order &&
-          ((retryRes.order.fill_count ?? 0) > 0 || retryRes.order.status === 'executed')
-        if (!retryFilled) {
-          console.log(`[ServerAgent] Fast-path: both IOC attempts unfilled — falling through to pipeline`)
+      const ioPrice = Math.min(99, askPrice + 3)
+      let res = await buy(market, side, ioPrice, contracts)
+      if (!res.ok || res.filled <= 0) {
+        const retry = await buy(market, side, Math.min(99, askPrice + 5), contracts)
+        if (!retry.ok || retry.filled <= 0) {
+          console.log(`[ServerAgent] Fast-path: both FAK attempts unfilled — falling through to pipeline`)
           return
         }
-        Object.assign(orderRes, retryRes)
+        res = retry
       }
 
-      // Order filled — record trade and mark window done
-      const actualFilled = orderRes.order!.fill_count ?? contracts
+      const actualFilled = res.filled || contracts
       const actualCost   = actualFilled * (askPrice / 100)
       this.windowBetPlaced = true
       this.agentPhase      = 'bet_placed'
       this.orderError      = null
 
-      const evTicker = (market as KalshiMarket & { event_ticker?: string }).event_ticker ?? this.windowKey
+      const evTicker = market.slug
       const trade: AgentTrade = {
         id:              `fast-${Date.now()}`,
         cycleId:         -1,
@@ -513,7 +465,7 @@ class ServerAgent extends EventEmitter {
         limitPrice:      askPrice,
         contracts:       actualFilled,
         cost:            actualCost,
-        marketTicker:    market.ticker,
+        marketTicker:    market.slug,
         strikePrice:     this.strikePrice,
         btcPriceAtEntry: undefined,
         expiresAt:       market.close_time,
@@ -523,39 +475,20 @@ class ServerAgent extends EventEmitter {
         pMarket:         askPrice / 100,
         edge:            edgePct,
         signals: {
-          sentimentScore:    0,
-          sentimentMomentum: 0,
-          orderbookSkew:     0,
-          sentimentLabel:    'fast_entry',
-          pLLM:              pModel,
-          confidence:        Math.abs(d) >= 1.1 ? 'high' : 'medium',  // midpoint of [1.0,1.2] edge zone
-          gkVol:             this.gkVol,
-          distancePct:       (Math.exp(this.gkVol * Math.sqrt(minutesLeft / 15) * Math.abs(d)) - 1) * 100,
-          minutesLeft,
-          aboveStrike:       d > 0,
-          priceMomentum1h:   0,
+          sentimentScore: 0, sentimentMomentum: 0, orderbookSkew: 0, sentimentLabel: 'fast_entry',
+          pLLM: pModel, confidence: Math.abs(d) >= 1.1 ? 'high' : 'medium', gkVol: this.gkVol,
+          distancePct: (Math.exp(this.gkVol * Math.sqrt(minutesLeft / 15) * Math.abs(d)) - 1) * 100,
+          minutesLeft, aboveStrike: d > 0, priceMomentum1h: 0,
         },
-        liveOrderId:  orderRes.order!.order_id,
+        liveOrderId:  res.orderId,
         orderError:   undefined,
       }
       this.trades = [...this.trades, trade]
       appendTrade(trade)
-
-      if (this.kellyMode) {
-        this.bankroll = Math.max(1, this.bankroll - actualCost)
-      }
+      if (this.kellyMode) this.bankroll = Math.max(1, this.bankroll - actualCost)
 
       console.log(`[ServerAgent] ✓ Fast-path filled — ${side.toUpperCase()} ${actualFilled}× @ ${askPrice}¢ on ${evTicker}`)
-      this.pushState(true)  // force KV flush on trade
-
-      // Place limit-sell at 99¢ to lock in profit when contract resolves
-      limitSellOrder({ ticker: market.ticker, side, count: actualFilled })
-        .then(sr => {
-          if (!sr.ok) console.warn(`[ServerAgent] fast-path limit-sell failed: ${sr.error}`)
-          else console.log(`[ServerAgent] ✓ Fast-path limit-sell @ 99¢ on ${market.ticker}`)
-        })
-        .catch(e => console.warn('[ServerAgent] fast-path limit-sell error:', e))
-
+      this.pushState(true)
     } catch (e) {
       console.error('[ServerAgent] Fast-path error:', e)
     }
@@ -567,7 +500,7 @@ class ServerAgent extends EventEmitter {
     this.agentPhase    = this.strikePrice > 0 ? 'monitoring' : 'bootstrap'
     this.pushState()
 
-    const SCAN_INTERVAL_MS = 5_000  // run full pipeline at most every 10s while in window
+    const SCAN_INTERVAL_MS = 5_000
 
     let pollInFlight = false
     const check = async () => {
@@ -576,7 +509,6 @@ class ServerAgent extends EventEmitter {
 
       const minutesLeft = (closeMs - Date.now()) / 60_000
 
-      // Window closing — stop monitoring, schedule next window
       if (minutesLeft < MIN_MINUTES_LEFT) {
         this.stopDPoller()
         if (!this.windowBetPlaced) {
@@ -592,7 +524,6 @@ class ServerAgent extends EventEmitter {
         return
       }
 
-      // Bootstrap: no strike yet → run pipeline once to fetch market data
       if (this.strikePrice <= 0) {
         this.stopDPoller()
         pollInFlight = false
@@ -600,24 +531,16 @@ class ServerAgent extends EventEmitter {
         return
       }
 
-      // Live % distance from strike — update UI every 2s
+      // Live % distance from strike — straight off the shared canonical BTC.
       try {
-        const res = await fetch('https://api.exchange.coinbase.com/products/BTC-USD/ticker', {
-          cache: 'no-store',
-          signal: AbortSignal.timeout(3_000),
-        })
-        if (res.ok) {
-          const cb    = await res.json()
-          const price = parseFloat(cb?.price)
-          if (price > 0) {
-            this.currentD   = ((price - this.strikePrice) / this.strikePrice) * 100
-            this.lastPollAt = Date.now()
-            this.pushState()
-          }
+        const price = polyFeed.quote().price
+        if (price > 0) {
+          this.currentD   = ((price - this.strikePrice) / this.strikePrice) * 100
+          this.lastPollAt = Date.now()
+          this.pushState()
         }
       } catch {}
 
-      // Fire full Markov pipeline every 30s — scans the whole window until signal or expiry
       const now = Date.now()
       if (now - this.lastCycleAt >= SCAN_INTERVAL_MS) {
         this.lastCycleAt = now
@@ -632,25 +555,24 @@ class ServerAgent extends EventEmitter {
     }
 
     check()
-    this.pollerInterval = setInterval(check, 2_000)  // 2s — live UI + rapid signal detection
+    this.pollerInterval = setInterval(check, 2_000)
   }
 
   private scheduleNextRun() {
     if (!this.active) return
     if (this.autoTimeout) { clearTimeout(this.autoTimeout); this.autoTimeout = null }
     this.stopDPoller()
-    // Moving to a new window — clear all previous window state
     this.windowBetPlaced = false
-    this.strikePrice     = 0   // force bootstrap pipeline on next window
+    this.strikePrice     = 0
     this.lastPollAt      = null
     this.currentD        = 0
-    this.lastCycleAt     = 0   // allow pipeline to fire immediately in the new window
+    this.lastCycleAt     = 0
 
     const { delayMs, closeMs } = getDelayMs()
     this.windowCloseAt = closeMs
 
     if (delayMs === 0) {
-      this.nextRunAt   = 0   // no countdown — scanning starts immediately
+      this.nextRunAt   = 0
       this.nextCycleIn = 0
       this.startDPoller(closeMs)
     } else {
@@ -672,101 +594,45 @@ class ServerAgent extends EventEmitter {
     if (this.isRunning) return
     this.isRunning  = true
     this.error      = null
-    const wasBootstrap = this.strikePrice <= 0   // track before pipeline sets strikePrice
+    const wasBootstrap = this.strikePrice <= 0
     this.agentPhase = wasBootstrap ? 'bootstrap' : 'pipeline'
     this.emit('pipeline_start', {})
     this.pushState()
 
-    const { closeMs } = getDelayMs()
-
     try {
-      // ── Fetch markets ──────────────────────────────────────────────────────
-      let markets: KalshiMarket[] = []
-      const isTradeable = (m: KalshiMarket) => {
-        if (m.status !== 'active' || m.yes_ask <= 0 || m.yes_ask >= 100) return false
-        // If close_time is missing, parse the window-end from the ticker so expired
-        // markets (which Kalshi may not have settled yet) don't slip through the filter.
-        const closeMs = m.close_time
-          ? new Date(m.close_time).getTime()
-          : parseKXBTC15MCloseMs(m.event_ticker || m.ticker)
-        return closeMs > 0 && closeMs > Date.now()
+      polyFeed.start()
+
+      // ── Active Polymarket window from the shared feed ──────────────────────
+      const pm = polyFeed.market(TF)
+      if (!pm || !pm.upTokenId || pm.up_ask <= 0 || pm.up_ask >= 100) {
+        throw new Error(`No active Polymarket ${TF} window from poly-dash feed yet`)
+      }
+      const markets: KalshiMarket[] = [pm as unknown as KalshiMarket]
+
+      // ── BTC quote from the shared canonical feed ───────────────────────────
+      const price = polyFeed.quote().price
+      if (!(price > 0)) throw new Error('BTC price unavailable from poly-dash feed')
+      const quote: BTCQuote = {
+        price, percent_change_1h: 0, percent_change_24h: 0,
+        volume_24h: 0, market_cap: price * 19_700_000, last_updated: new Date().toISOString(),
       }
 
-      const eventTicker = getCurrentEventTicker()
-      const eventPath   = `/trade-api/v2/markets?event_ticker=${eventTicker}&limit=5`
-      const eventRes    = await fetch(
-        `${KALSHI_HOST}${eventPath}`,
-        { headers: { ...buildKalshiHeaders('GET', eventPath), Accept: 'application/json' }, cache: 'no-store' }
-      ).catch(() => null)
-
-      if (eventRes?.ok) {
-        const d = await eventRes.json()
-        markets = (d.markets ?? []).map(normalizeKalshiMarket).filter(isTradeable)
-      }
-
-      if (!markets.length) {
-        const fbPath = '/trade-api/v2/markets?series_ticker=KXBTC15M&limit=100'
-        const fbRes  = await fetch(
-          `${KALSHI_HOST}${fbPath}`,
-          { headers: { ...buildKalshiHeaders('GET', fbPath), Accept: 'application/json' }, cache: 'no-store' }
-        ).catch(() => null)
-        if (fbRes?.ok) {
-          const d = await fbRes.json()
-          markets = (d.markets ?? []).map(normalizeKalshiMarket).filter(isTradeable)
-        }
-      }
-
-      // Last-resort fallback: fetch the specific ticker we know is active
-      if (!markets.length && this.currentMarketTicker) {
-        const tkPath = `/trade-api/v2/markets/${encodeURIComponent(this.currentMarketTicker)}`
-        const tkRes  = await fetch(
-          `${KALSHI_HOST}${tkPath}`,
-          { headers: { ...buildKalshiHeaders('GET', tkPath), Accept: 'application/json' }, cache: 'no-store' }
-        ).catch(() => null)
-        if (tkRes?.ok) {
-          const d = await tkRes.json()
-          const m = normalizeKalshiMarket(d.market ?? d)
-          if (isTradeable(m)) markets = [m]
-        }
-      }
-
-      if (!markets.length) throw new Error('No active KXBTC15M markets — trading hours ~11:30 AM–midnight ET')
-
-      // ── Fetch BTC price (Coinbase Exchange — same feed Kalshi settles against) ──
-      let quote: BTCQuote | null = null
-      const cbRes = await fetch('https://api.exchange.coinbase.com/products/BTC-USD/ticker', { cache: 'no-store' }).catch(() => null)
-      if (cbRes?.ok) {
-        const cb    = await cbRes.json()
-        const price = parseFloat(cb?.price)
-        if (price > 0) quote = { price, percent_change_1h: 0, percent_change_24h: 0, volume_24h: 0, market_cap: price * 19_700_000, last_updated: new Date().toISOString() }
-      }
-      if (!quote) throw new Error('BTC price unavailable — Coinbase Exchange unreachable')
-
-      // ── Parallel data fetch ────────────────────────────────────────────────
-      const [balResult, candleRes, liveCandleRes, bybitRes, obRes] = await Promise.all([
-        getBalance().catch(() => null),
+      // ── Candles (Coinbase REST) + derivatives (Bybit) — external, not via Kalshi ──
+      const [candleRes, liveCandleRes, bybitRes] = await Promise.all([
         fetch('https://api.exchange.coinbase.com/products/BTC-USD/candles?granularity=900&limit=13', { cache: 'no-store' }).catch(() => null),
         fetch('https://api.exchange.coinbase.com/products/BTC-USD/candles?granularity=60&limit=16', { cache: 'no-store' }).catch(() => null),
         fetch('https://api.bybit.com/v5/market/tickers?category=linear&symbol=BTCUSDT', { cache: 'no-store' }).catch(() => null),
-        fetch(`${KALSHI_HOST}/trade-api/v2/markets/${markets[0].ticker}/orderbook`, {
-          headers: { ...buildKalshiHeaders('GET', `/trade-api/v2/markets/${markets[0].ticker}/orderbook`), Accept: 'application/json' },
-          cache: 'no-store',
-        }).catch(() => null),
       ])
 
-      const actualBalanceCents = (balResult?.ok && balResult.data)
-        ? ((balResult.data.balance ?? 0) + (balResult.data.portfolio_value ?? 0))
-        : 0
-      // In Kelly mode, size against the configured bankroll (total risk budget), not just
-      // the current Kalshi balance. Real balance may be small after funding; Kelly should
-      // use the full intended deployment amount so positions are meaningfully sized.
+      // ── Portfolio value: shared wallet balance (cents), or Kelly bankroll ──
+      const balUsd = await getBalanceUsd().catch(() => null)
+      const actualBalanceCents = balUsd != null ? Math.round(balUsd * 100) : 0
       const portfolioValueCents = (this.kellyMode && this.bankroll > 0)
         ? Math.max(actualBalanceCents, Math.round(this.bankroll * 100))
         : actualBalanceCents
 
       let candles: OHLCVCandle[] = []
       if (candleRes?.ok) { const r = await candleRes.json(); candles = Array.isArray(r) ? r.slice(1, 13) : [] }
-
       let liveCandles: OHLCVCandle[] = []
       if (liveCandleRes?.ok) { const r = await liveCandleRes.json(); liveCandles = Array.isArray(r) ? r : [] }
 
@@ -784,8 +650,14 @@ class ServerAgent extends EventEmitter {
         }
       }
 
-      let orderbook: KalshiOrderbook | null = null
-      if (obRes?.ok) { const d = await obRes.json(); orderbook = d.orderbook ?? null }
+      // ── Orderbook from the shared feed (up=yes, down=no) ───────────────────
+      const orderbook: KalshiOrderbook | null = (() => {
+        const up = polyFeed.orderbook(pm.upTokenId)
+        const down = polyFeed.orderbook(pm.downTokenId)
+        if (!up && !down) return null
+        const lvls = (b?: { bids: [number, number][] }) => (b?.bids ?? []).map(([price, size]) => ({ price, delta: size }))
+        return { yes: lvls(up ?? undefined), no: lvls(down ?? undefined) }
+      })()
 
       // ── Run pipeline ───────────────────────────────────────────────────────
       const provider  = (process.env.AI_PROVIDER ?? 'grok') as AIProvider
@@ -817,7 +689,6 @@ class ServerAgent extends EventEmitter {
       this.isRunning = false
 
       if (this.active) {
-        // Always get fresh timing — closeMs from the try block may be stale if pipeline took long
         const { minutesLeft, closeMs: freshClose } = getDelayMs()
         const failed       = this.orderFailed
         const pipeErr      = this.pipelineError
@@ -825,7 +696,6 @@ class ServerAgent extends EventEmitter {
         this.pipelineError = false
 
         if (pipeErr) {
-          // Pipeline failed (markets closed, network error, etc.) — short retry so we don't miss a window
           const retryMs    = 5_000
           this.nextRunAt   = Date.now() + retryMs
           this.nextCycleIn = Math.round(retryMs / 1000)
@@ -833,7 +703,6 @@ class ServerAgent extends EventEmitter {
           console.log('[ServerAgent] Pipeline error — retrying in 5s')
           this.schedule(() => this.scheduleNextRun(), retryMs)
         } else if (failed && minutesLeft >= MIN_MINUTES_LEFT) {
-          // Order placement failed — retry poller in 60s within same window
           this.nextRunAt   = Date.now() + 60_000
           this.nextCycleIn = 60
           this.schedule(() => {
@@ -841,11 +710,9 @@ class ServerAgent extends EventEmitter {
             this.startDPoller(cm)
           }, 60_000)
         } else if (!this.windowBetPlaced && minutesLeft >= MIN_MINUTES_LEFT) {
-          // Bootstrap or NO_TRADE — restart poller to keep scanning for signal within window
           this.agentPhase = 'monitoring'
           this.startDPoller(freshClose)
         } else {
-          // Bet placed or window expired — wait for window to close then schedule next
           const waitMs     = Math.max(POST_WINDOW_BUFFER_MS, freshClose - Date.now() + POST_WINDOW_BUFFER_MS)
           this.agentPhase  = this.windowBetPlaced ? 'bet_placed' : 'waiting'
           this.nextRunAt   = Date.now() + waitMs
@@ -868,14 +735,13 @@ class ServerAgent extends EventEmitter {
     const risk  = data.agents.markov.output
     const sent  = data.agents.sentiment.output
 
-    const evTicker = (md.activeMarket as { event_ticker?: string } | undefined)?.event_ticker
-      ?? md.activeMarket?.ticker.split('-').slice(0, 2).join('-')
+    const evTicker = (md.activeMarket as { slug?: string; event_ticker?: string } | undefined)?.slug
+      ?? md.activeMarket?.ticker
       ?? null
 
     if (md.strikePrice > 0)                        this.strikePrice          = md.strikePrice
     if (prob.gkVol15m && prob.gkVol15m > 0)        this.gkVol                = prob.gkVol15m
     if (md.activeMarket?.ticker)                   this.currentMarketTicker  = md.activeMarket.ticker
-    // Sync currentD to % distance from strike — positive = above, negative = below
     this.currentD = pf.aboveStrike ? pf.distanceFromStrikePct : -pf.distanceFromStrikePct
 
     if (evTicker && evTicker !== this.windowKey) {
@@ -883,15 +749,13 @@ class ServerAgent extends EventEmitter {
       this.windowBetPlaced = false
     }
 
-    // Bootstrap: capture market context only — time-based poller triggers the real entry run
     if (isBootstrap) {
       const distPct = pf.aboveStrike ? pf.distanceFromStrikePct : -pf.distanceFromStrikePct
       this.currentD = distPct
-      console.log(`[ServerAgent] Bootstrap: strike=$${md.strikePrice} BTC=${distPct >= 0 ? '+' : ''}${distPct.toFixed(2)}% from strike — Markov poller scanning every 10s`)
+      console.log(`[ServerAgent] Bootstrap: strike=$${md.strikePrice} BTC=${distPct >= 0 ? '+' : ''}${distPct.toFixed(2)}% from strike — Markov poller scanning`)
       return
     }
 
-    // Place bet — also guard against pipeline completing too close to expiry
     const msUntilClose    = this.windowCloseAt > 0 ? this.windowCloseAt - Date.now() : Infinity
     const minsUntilClose  = msUntilClose / 60_000
     if (
@@ -903,102 +767,48 @@ class ServerAgent extends EventEmitter {
       evTicker               &&
       this.allowance >= 1    &&
       !this.windowBetPlaced  &&
-      minsUntilClose >= MIN_MINUTES_LEFT   // don't place if pipeline result is stale / too late
+      minsUntilClose >= MIN_MINUTES_LEFT
     ) {
-      // Fetch a fresh market quote right before placing the order — pipeline data may be stale
+      // Fresh price straight off the real-time feed (no REST refetch).
+      const market = polyFeed.market(TF)
+      if (!market || !market.upTokenId) { console.warn('[ServerAgent] feed market unavailable at order time — skip'); return }
       let liveLimitPrice = exec.limitPrice
-      try {
-        const quotePath = `/trade-api/v2/markets/${encodeURIComponent(exec.marketTicker)}`
-        const quoteRes = await fetch(`${KALSHI_HOST}${quotePath}`, {
-          headers: { ...buildKalshiHeaders('GET', quotePath), Accept: 'application/json' },
-          cache: 'no-store',
-        })
-        if (quoteRes.ok) {
-          const quoteData = await quoteRes.json()
-          const liveMarket = normalizeKalshiMarket(quoteData.market ?? quoteData)
-          const freshPrice = exec.side === 'yes' ? liveMarket.yes_ask : liveMarket.no_ask
-          if (freshPrice > 0) {
-            const maxFreshPrice = exec.side === 'yes' ? MAX_FAST_ENTRY_PRICE_YES : MAX_FAST_ENTRY_PRICE_NO
-            if (freshPrice > maxFreshPrice) {
-              console.log(`[ServerAgent] Fresh quote: ${exec.side}_ask=${freshPrice}¢ > ${maxFreshPrice}¢ cap — SKIP (price moved after pipeline approval)`)
-              return
-            }
-            console.log(`[ServerAgent] Fresh quote: ${exec.side}_ask=${freshPrice}¢ (was ${exec.limitPrice}¢)`)
-            liveLimitPrice = freshPrice
-          }
+      const freshPrice = exec.side === 'yes' ? market.yes_ask : market.no_ask
+      if (freshPrice > 0) {
+        const maxFreshPrice = exec.side === 'yes' ? MAX_FAST_ENTRY_PRICE_YES : MAX_FAST_ENTRY_PRICE_NO
+        if (freshPrice > maxFreshPrice) {
+          console.log(`[ServerAgent] Fresh quote: ${exec.side}_ask=${freshPrice}¢ > ${maxFreshPrice}¢ cap — SKIP`)
+          return
         }
-      } catch (qe) {
-        console.warn('[ServerAgent] Fresh quote fetch failed, using pipeline price:', qe)
+        liveLimitPrice = freshPrice
       }
 
-      // Compute contract count using live price.
-      // Always size from this.allowance — it's already Kelly-sized (or fixed by user).
-      // Ignoring risk.positionSize here: Markov sizes against Kalshi balance which can
-      // diverge from the Kelly bankroll, producing an understated contract count.
       const costPerContract = liveLimitPrice / 100
       const contracts       = Math.max(1, Math.floor(this.allowance / costPerContract))
       const cost            = contracts * costPerContract
 
       let liveOrderId: string | undefined
       let orderErrorMsg: string | undefined
-      let iocUnfilled   = false   // IOC with no fill — skip window, don't retry
+      let iocUnfilled   = false
 
-      {
-        try {
-          // IOC at liveLimitPrice + 3¢ — sweeps the book at current market price.
-          // Kalshi fills at the best available ask (not necessarily at our ceiling).
-          // If the order doesn't fill (book empty / price moved > 3¢), retry once at +5¢.
-          // No upper price cap — data shows 90-99¢ has 100% win rate.
-          const ioPrice = (price: number) => Math.min(99, price + 3)
-          let res = await placeOrder({
-            ticker:  exec.marketTicker,
-            side:    exec.side,
-            count:   contracts,
-            yesPrice: exec.side === 'yes' ? ioPrice(liveLimitPrice) : undefined,
-            noPrice:  exec.side === 'no'  ? ioPrice(liveLimitPrice) : undefined,
-            clientOrderId: `agent-${data.cycleId}-${Date.now()}`,
-            ioc: true,
-          })
-
-          // If IOC cancelled (0 fills) — price moved, retry once with wider sweep
-          const wasFilled = (r: typeof res) =>
-            r.ok && r.order && ((r.order.fill_count ?? 0) > 0 || r.order.status === 'executed')
-
-          if (!wasFilled(res) && res.ok) {
-            console.log(`[ServerAgent] IOC unfilled — retrying with +5¢ ceiling`)
-            const retryPrice = (price: number) => Math.min(99, price + 5)
-            res = await placeOrder({
-              ticker:  exec.marketTicker,
-              side:    exec.side,
-              count:   contracts,
-              yesPrice: exec.side === 'yes' ? retryPrice(liveLimitPrice) : undefined,
-              noPrice:  exec.side === 'no'  ? retryPrice(liveLimitPrice) : undefined,
-              clientOrderId: `agent-${data.cycleId}-retry-${Date.now()}`,
-              ioc: true,
-            })
-          }
-
-          if (wasFilled(res)) {
-            liveOrderId = res.order!.order_id
-            const actualFillCount = res.order!.fill_count ?? contracts
-            console.log(`[ServerAgent] IOC filled ${actualFillCount} contracts`)
-            limitSellOrder({ ticker: exec.marketTicker, side: exec.side, count: actualFillCount })
-              .then(sr => {
-                if (!sr.ok) console.warn(`[ServerAgent] limit-sell failed: ${sr.error}`)
-                else console.log(`[ServerAgent] ✓ Limit-sell placed @ 99¢ on ${exec.marketTicker}`)
-              })
-              .catch(e => console.warn('[ServerAgent] limit-sell error:', e))
-          } else if (!res.ok) {
-            orderErrorMsg = res.error ?? 'Order failed'
-          } else {
-            // Both IOC attempts returned 0 fills — no liquidity, skip this window
-            iocUnfilled   = true
-            orderErrorMsg = 'IOC unfilled — no liquidity, skipping window'
-            console.warn(`[ServerAgent] ${orderErrorMsg}`)
-          }
-        } catch (e) {
-          orderErrorMsg = String(e)
+      try {
+        let res = await buy(market, exec.side, Math.min(99, liveLimitPrice + 3), contracts)
+        if ((!res.ok || res.filled <= 0) && res.ok) {
+          console.log(`[ServerAgent] FAK unfilled — retrying with +5¢`)
+          res = await buy(market, exec.side, Math.min(99, liveLimitPrice + 5), contracts)
         }
+        if (res.ok && res.filled > 0) {
+          liveOrderId = res.orderId
+          console.log(`[ServerAgent] FAK filled ${res.filled} shares`)
+        } else if (!res.ok) {
+          orderErrorMsg = res.error ?? 'Order failed'
+        } else {
+          iocUnfilled   = true
+          orderErrorMsg = 'FAK unfilled — no liquidity, skipping window'
+          console.warn(`[ServerAgent] ${orderErrorMsg}`)
+        }
+      } catch (e) {
+        orderErrorMsg = String(e)
       }
 
       const trade: AgentTrade = {
@@ -1010,27 +820,20 @@ class ServerAgent extends EventEmitter {
         limitPrice:       liveLimitPrice,
         contracts,
         cost,
-        marketTicker:     exec.marketTicker,
+        marketTicker:     market.slug,
         strikePrice:      md.strikePrice,
         btcPriceAtEntry:  pf.currentPrice,
-        expiresAt:        md.activeMarket.close_time,
+        expiresAt:        (md.activeMarket as unknown as PolyMarket).close_time ?? market.close_time,
         enteredAt:        new Date().toISOString(),
         status:           'open',
         pModel:           prob.pModel,
         pMarket:          prob.pMarket,
         edge:             prob.edge,
         signals: {
-          sentimentScore:    sent.score,
-          sentimentMomentum: sent.momentum,
-          orderbookSkew:     sent.orderbookSkew,
-          sentimentLabel:    sent.label,
-          pLLM:              prob.pModel,
-          confidence:        prob.confidence,
-          gkVol:             prob.gkVol15m ?? null,
-          distancePct:       pf.distanceFromStrikePct,
-          minutesLeft:       md.minutesUntilExpiry,
-          aboveStrike:       pf.aboveStrike,
-          priceMomentum1h:   pf.priceChangePct1h,
+          sentimentScore: sent.score, sentimentMomentum: sent.momentum, orderbookSkew: sent.orderbookSkew,
+          sentimentLabel: sent.label, pLLM: prob.pModel, confidence: prob.confidence,
+          gkVol: prob.gkVol15m ?? null, distancePct: pf.distanceFromStrikePct,
+          minutesLeft: md.minutesUntilExpiry, aboveStrike: pf.aboveStrike, priceMomentum1h: pf.priceChangePct1h,
         },
         liveOrderId,
         orderError:       orderErrorMsg,
@@ -1043,12 +846,9 @@ class ServerAgent extends EventEmitter {
         this.windowBetPlaced = true
         this.orderError      = null
         this.agentPhase      = 'bet_placed'
-        if (this.kellyMode) {
-          this.bankroll = Math.max(1, this.bankroll - cost) // reserve the bet
-        }
+        if (this.kellyMode) this.bankroll = Math.max(1, this.bankroll - cost)
         console.log(`[ServerAgent] ✓ Bet placed — ${exec.side.toUpperCase()} ${contracts}× @ ${liveLimitPrice}¢ on ${evTicker}`)
       } else if (iocUnfilled) {
-        // No liquidity or price cap — skip this window, don't retry (would just loop)
         this.orderError  = orderErrorMsg ?? 'Skipped — no fill'
         this.agentPhase  = 'pass_skipped'
         console.log(`[ServerAgent] Skipping window — ${this.orderError}`)
@@ -1067,43 +867,29 @@ class ServerAgent extends EventEmitter {
     )
     if (expiredTrades.length > 0) {
       const settled = await Promise.all(expiredTrades.map(async t => {
-        try {
-          const path = `/trade-api/v2/markets/${encodeURIComponent(t.marketTicker)}`
-          const res  = await fetch(`${KALSHI_HOST}${path}`, {
-            headers: { ...buildKalshiHeaders('GET', path), Accept: 'application/json' },
-            cache: 'no-store',
-          })
-          if (res.ok) {
-            const { market } = await res.json()
-            if (market?.result === 'yes' || market?.result === 'no') {
-              const win = t.side === market.result
-              const fee = kalshiFee(t.contracts, t.limitPrice ?? Math.round(t.cost / t.contracts * 100))
-              const pnl = win ? (t.contracts - t.cost) - fee : -t.cost - fee
-              return { ...t, status: (win ? 'won' : 'lost') as 'won' | 'lost', settlementPrice: pf.currentPrice, pnl }
-            }
-          }
-        } catch (e) {
-          console.warn(`[ServerAgent] Settlement fetch failed for ${t.marketTicker} — will retry next cycle:`, e)
+        const outcome = await fetchOutcome(new Date(t.expiresAt).getTime())
+        if (outcome) {
+          const win = (t.side === 'yes' && outcome === 'up') || (t.side === 'no' && outcome === 'down')
+          const fee = polyFee(t.contracts, t.limitPrice ?? Math.round(t.cost / t.contracts * 100))
+          const pnl = win ? (t.contracts - t.cost) - fee : -t.cost - fee
+          return { ...t, status: (win ? 'won' : 'lost') as 'won' | 'lost', settlementPrice: pf.currentPrice, pnl }
         }
         return t
       }))
       const justSettled = settled.filter(s => s.status !== 'open')
       this.trades = this.trades.map(t => settled.find(s => s.id === t.id) ?? t)
 
-      // Persist settlement updates to disk log + update session risk state
       for (const t of justSettled) {
         updateTrade(t.id, { status: t.status, pnl: t.pnl, settlementPrice: t.settlementPrice })
         if (t.pnl != null) recordTradeResult(t.pnl)
       }
 
-      // Kelly: update bankroll from settlement and recalculate allowance
       if (this.kellyMode && justSettled.length > 0) {
         for (const t of justSettled) {
           if (t.status === 'won') {
-            const fee = kalshiFee(t.contracts, t.limitPrice ?? Math.round(t.cost / t.contracts * 100))
-            this.bankroll += t.contracts - fee   // receive $1/contract, pay maker fee
+            const fee = polyFee(t.contracts, t.limitPrice ?? Math.round(t.cost / t.contracts * 100))
+            this.bankroll += t.contracts - fee
           }
-          // On loss, cost + fee already deducted at bet time — nothing extra to do
         }
         this.bankroll  = Math.max(1, this.bankroll)
         this.allowance = Math.max(1, Math.round(this.bankroll * this.kellyPct * 100) / 100)
@@ -1115,13 +901,10 @@ class ServerAgent extends EventEmitter {
 }
 
 // Singleton pinned to globalThis — survives Next.js HMR and is shared across
-// all API routes that run in the same warm Vercel Node.js instance.
-// This ensures /api/agent/start, /api/agent/state, /api/agent/stream all
-// operate on the same agent object rather than independent fresh copies.
+// all API routes that run in the same warm Node.js instance.
 const g = globalThis as typeof globalThis & { _serverAgent?: ServerAgent }
 if (!g._serverAgent) {
   g._serverAgent = new ServerAgent()
-  // Auto-restore persisted config once on first init
   setImmediate(() => { g._serverAgent!['restoreConfig']() })
 }
 export const serverAgent = g._serverAgent

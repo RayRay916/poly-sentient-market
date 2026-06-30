@@ -1,0 +1,33 @@
+[package]
+name = "poly-sentient-exec"
+version = "0.1.0"
+edition = "2021"
+description = "Minimal Polymarket CLOB execution microservice for poly-sentient-market (own wallet). Forked from poly-dash's order-signing path."
+
+[[bin]]
+name = "poly-sentient-exec"
+path = "src/main.rs"
+
+[dependencies]
+# Polymarket signing/order SDK — same path dep poly-dash uses.
+polyfill-rs = { path = "/home/ray/polyfill-rs", features = ["stream"] }
+
+axum = "0.8"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Crypto / wallet
+alloy-primitives = "1"
+alloy-signer-local = "1"
+
+rust_decimal = "1.36"
+dotenvy = "0.15"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
